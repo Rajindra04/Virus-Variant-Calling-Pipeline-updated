@@ -1,0 +1,113 @@
+# =============================================================================
+# Dengue Virus Serotype 1 (DENV-1) Configuration
+# =============================================================================
+#
+# This config file defines ALL virus-specific and analysis parameters for the
+# Virus Variant Calling Pipeline. To adapt this pipeline for a different virus,
+# copy this file, rename it (e.g., sars-cov-2.yaml), and adjust the values.
+#
+# Key questions to research when adapting for a new virus:
+#   1. What is the ploidy? (haploid for most RNA viruses)
+#   2. What is the expected genome size?
+#   3. What reference genome and annotation should be used?
+#   4. Were amplicon primers used? (if so, provide a BED file)
+#   5. What coverage depth is adequate for your analysis goals?
+#
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Virus identity
+# ---------------------------------------------------------------------------
+virus_name: "Dengue virus serotype 1"
+genome_type: "ssRNA(+)"       # Single-stranded positive-sense RNA
+ploidy: 1                     # Haploid -- most RNA viruses are haploid
+expected_genome_size: 10735   # bp (approximate)
+
+# ---------------------------------------------------------------------------
+# Reference files  (override on command line with --reference_fasta / --genbank_file)
+# ---------------------------------------------------------------------------
+database_name: "denv1"        # Name used for the SnpEff database
+
+# ---------------------------------------------------------------------------
+# Read trimming -- fastp
+# ---------------------------------------------------------------------------
+fastp:
+  qualified_quality_phred: 20    # Minimum Phred quality to keep a base
+  length_required: 50            # Discard reads shorter than this after trimming
+  cut_front: true                # Sliding-window trim from 5' end
+  cut_tail: true                 # Sliding-window trim from 3' end
+  cut_window_size: 4             # Sliding-window width (bases)
+  cut_mean_quality: 20           # Minimum mean quality inside the window
+  detect_adapter_for_pe: true    # Auto-detect adapters for paired-end reads
+  correction: true               # Enable overlap-based error correction
+  overlap_len_require: 30        # Minimum overlap length for correction
+  threads: 4
+
+# ---------------------------------------------------------------------------
+# Alignment filtering -- samtools view
+# ---------------------------------------------------------------------------
+alignment_filtering:
+  min_mapping_quality: 20        # -q  : discard reads with MAPQ < this
+  exclude_flags: "0x904"         # -F  : unmapped (0x4) + secondary (0x100) + supplementary (0x800)
+
+# ---------------------------------------------------------------------------
+# Duplicate removal -- samtools fixmate + markdup
+# ---------------------------------------------------------------------------
+deduplication:
+  enabled: true                  # Set to false to skip duplicate removal
+  remove_duplicates: true        # -r flag: remove (not just mark) duplicates
+
+# ---------------------------------------------------------------------------
+# Primer trimming -- ivar trim
+# ---------------------------------------------------------------------------
+# Provide --primer_bed on the command line to enable.
+# If no BED file is given, this step is skipped and logged in provenance.
+primer_trimming:
+  min_quality: 20                # -q : quality threshold for sliding window
+  min_length: 30                 # -m : minimum read length after trimming
+  sliding_window: 4              # -s : sliding window width
+  include_reads_no_primer: true  # -e : include reads without primer sequence
+
+# ---------------------------------------------------------------------------
+# Coverage calculation -- samtools depth
+# ---------------------------------------------------------------------------
+coverage:
+  min_base_quality: 20           # -q : minimum base quality
+  min_mapping_quality: 20        # -Q : minimum mapping quality
+
+# ---------------------------------------------------------------------------
+# Consensus generation -- samtools mpileup | ivar consensus
+# ---------------------------------------------------------------------------
+consensus:
+  mpileup_max_depth: 10000       # -d : maximum read depth per position
+  mpileup_min_base_quality: 20   # -Q : minimum base quality for mpileup
+  mpileup_min_mapping_quality: 20  # -q : minimum mapping quality for mpileup
+  ivar_min_quality: 20           # -q : minimum quality score for consensus
+  ivar_min_frequency: 0.5        # -t : frequency threshold (0.5 = majority rule)
+  ivar_min_depth: 10             # -m : minimum depth to call consensus
+  ivar_ambiguous_char: "N"       # -n : character for ambiguous/low-depth positions
+
+# ---------------------------------------------------------------------------
+# Variant calling -- GATK HaplotypeCaller
+# ---------------------------------------------------------------------------
+variant_calling:
+  ploidy: 1                      # Must match the ploidy field above
+  standard_min_confidence: 30    # --standard-min-confidence-threshold-for-calling
+  min_base_quality_score: 20     # --min-base-quality-score
+
+# ---------------------------------------------------------------------------
+# VCF filtering -- GATK VariantFiltration + SelectVariants
+# ---------------------------------------------------------------------------
+vcf_filtering:
+  filters:
+    LowQD:       "QD < 2.0"       # Quality-by-depth
+    StrandBias:  "FS > 60.0"      # Fisher strand bias
+    LowMQ:       "MQ < 40.0"      # Mapping quality
+    LowDepth:    "DP < 10"        # Read depth
+  select_pass_only: true           # Keep only PASS variants for annotation
+
+# ---------------------------------------------------------------------------
+# Variant annotation -- snpEff
+# ---------------------------------------------------------------------------
+annotation:
+  snpeff_memory: "4g"              # -Xmx value

@@ -16,6 +16,7 @@ from virus_pipeline import (
     summarize_result,
     summarize_snpEff,
 )
+from virus_pipeline.config import load_config
 from virus_pipeline.provenance import ProvenanceTracker
 
 # Configure logging
@@ -58,11 +59,19 @@ def main():
     parser.add_argument('--reference_fasta', type=str, required=True)
     parser.add_argument('--genbank_file', type=str, required=True)
     parser.add_argument('--output_dir', type=str, required=True)
-    parser.add_argument('--database_name', type=str, default='denv1')
+    parser.add_argument('--config', type=str, required=True,
+                        help='Path to virus config YAML file (e.g., configs/denv1.yaml)')
     parser.add_argument('--primer_bed', type=str, default=None,
                         help='BED file with primer coordinates for ivar trim. '
                              'If not provided, primer trimming is skipped.')
     args = parser.parse_args()
+
+    # Load virus-specific config
+    check_file_exists(args.config, "Config file")
+    config = load_config(args.config)
+
+    # Config provides database_name
+    database_name = config['database_name']
 
     # Check inputs and tools
     check_file_exists(args.input_dir, "Input directory")
@@ -81,7 +90,12 @@ def main():
 
     # Initialize provenance tracker
     tracker = ProvenanceTracker(args.output_dir)
-    tracker.set_pipeline_args(vars(args))
+    pipeline_args = vars(args).copy()
+    pipeline_args['virus_name'] = config['virus_name']
+    pipeline_args['ploidy'] = config['ploidy']
+    pipeline_args['database_name'] = database_name
+    tracker.set_pipeline_args(pipeline_args)
+    tracker.set_config(config)
     tracker.detect_all_tool_versions()
 
     # Run pipeline steps
@@ -103,17 +117,19 @@ def main():
 
     try:
         logging.info("Starting map_reads")
-        map_reads(['--samplesheet', sample_sheet, '--reference', args.reference_fasta])
-        tracker.record_step("Read trimming (fastp) + QC (FastQC) + Mapping (bwa-mem2)", "fastp, fastqc, bwa-mem2", {
-            'fastp_qualified_quality_phred': 20,
-            'fastp_length_required': 50,
-            'fastp_cut_front': True,
-            'fastp_cut_tail': True,
-            'fastp_cut_window_size': 4,
-            'fastp_cut_mean_quality': 20,
-            'fastp_detect_adapter_for_pe': True,
-            'fastp_correction': True,
-            'fastp_overlap_len_require': 30,
+        map_reads(['--samplesheet', sample_sheet, '--reference', args.reference_fasta,
+                   '--config', args.config])
+        tracker.record_step("Read trimming (fastp) + QC (FastQC) + Mapping (bwa-mem2)",
+                           "fastp, fastqc, bwa-mem2", {
+            'fastp_qualified_quality_phred': config['fastp']['qualified_quality_phred'],
+            'fastp_length_required': config['fastp']['length_required'],
+            'fastp_cut_front': config['fastp']['cut_front'],
+            'fastp_cut_tail': config['fastp']['cut_tail'],
+            'fastp_cut_window_size': config['fastp']['cut_window_size'],
+            'fastp_cut_mean_quality': config['fastp']['cut_mean_quality'],
+            'fastp_detect_adapter_for_pe': config['fastp']['detect_adapter_for_pe'],
+            'fastp_correction': config['fastp']['correction'],
+            'fastp_overlap_len_require': config['fastp']['overlap_len_require'],
             'bwa_mem2_reference': args.reference_fasta,
         })
         logging.info("Completed map_reads")
@@ -127,12 +143,14 @@ def main():
 
     try:
         logging.info("Starting samtobamdenv")
-        samtobamdenv(['--input_dir', sam_files_dir, '--reference_fasta', args.reference_fasta, '--output_dir', args.output_dir])
+        samtobamdenv(['--input_dir', sam_files_dir, '--reference_fasta', args.reference_fasta,
+                      '--output_dir', args.output_dir, '--config', args.config])
         tracker.record_step("SAM to BAM conversion + filtering + dedup", "samtools", {
-            'samtools_view_min_mapq': 20,
-            'samtools_view_exclude_flags': '0x904 (unmapped + secondary + supplementary)',
+            'samtools_view_min_mapq': config['alignment_filtering']['min_mapping_quality'],
+            'samtools_view_exclude_flags': config['alignment_filtering']['exclude_flags'],
             'samtools_fixmate': True,
-            'samtools_markdup_remove': True,
+            'samtools_markdup_remove': config['deduplication']['remove_duplicates'],
+            'deduplication_enabled': config['deduplication']['enabled'],
         })
         logging.info("Completed samtobamdenv")
     except Exception as e:
@@ -145,10 +163,13 @@ def main():
 
     try:
         logging.info("Starting create_snpeff_database")
-        create_snpeff_database(['--genbank_file', args.genbank_file, '--reference_fasta', args.reference_fasta, '--output_dir', args.output_dir, '--database_name', args.database_name])
+        create_snpeff_database(['--genbank_file', args.genbank_file,
+                                '--reference_fasta', args.reference_fasta,
+                                '--output_dir', args.output_dir,
+                                '--database_name', database_name])
         tracker.record_step("Build SnpEff database", "snpEff", {
             'genbank_file': args.genbank_file,
-            'database_name': args.database_name,
+            'database_name': database_name,
         })
         logging.info("Completed create_snpeff_database")
     except Exception as e:
@@ -161,7 +182,9 @@ def main():
 
     try:
         logging.info("Starting sam2consensus_test2_ivar")
-        sam2consensus_test2_ivar(['--input_dir', args.output_dir, '--reference_fasta', args.reference_fasta, '--output_dir', args.output_dir])
+        sam2consensus_test2_ivar(['--input_dir', args.output_dir,
+                                  '--reference_fasta', args.reference_fasta,
+                                  '--output_dir', args.output_dir])
         tracker.record_step("Legacy ivar consensus (pre-existing step)", "ivar", {
             'note': 'This is the original sam2consensus_test2_ivar module',
         })
@@ -179,7 +202,8 @@ def main():
         '--input_dir', args.output_dir,
         '--reference_fasta', args.reference_fasta,
         '--output_dir', args.output_dir,
-        '--database_name', args.database_name,
+        '--database_name', database_name,
+        '--config', args.config,
     ]
     if args.primer_bed:
         vcc_args.extend(['--primer_bed', args.primer_bed])
@@ -189,13 +213,14 @@ def main():
         variant_calling_consensus(vcc_args)
 
         # Record primer trimming status (after step has actually run)
+        pt = config['primer_trimming']
         if args.primer_bed:
             tracker.record_step("Primer trimming", "ivar trim", {
                 'primer_bed': args.primer_bed,
-                'min_quality': 20,
-                'min_length': 30,
-                'sliding_window': 4,
-                'include_reads_no_primer': True,
+                'min_quality': pt['min_quality'],
+                'min_length': pt['min_length'],
+                'sliding_window': pt['sliding_window'],
+                'include_reads_no_primer': pt['include_reads_no_primer'],
             })
         else:
             tracker.record_step("Primer trimming", "ivar trim", {
@@ -205,33 +230,40 @@ def main():
                      "removed from aligned reads. Variants at primer binding sites "
                      "may be masked by primer sequence. Provide a BED file with "
                      "--primer_bed to enable this step.")
+
+        cov = config['coverage']
         tracker.record_step("Coverage calculation", "samtools depth", {
-            'min_mapping_quality': 20,
-            'min_base_quality': 20,
+            'min_mapping_quality': cov['min_mapping_quality'],
+            'min_base_quality': cov['min_base_quality'],
         })
+
+        cons = config['consensus']
         tracker.record_step("Consensus generation", "samtools mpileup + ivar consensus", {
-            'mpileup_max_depth': 10000,
-            'mpileup_min_base_quality': 20,
-            'mpileup_min_mapping_quality': 20,
-            'ivar_min_quality': 20,
-            'ivar_min_frequency_threshold': 0.5,
-            'ivar_min_depth': 10,
-            'ivar_ambiguous_char': 'N',
+            'mpileup_max_depth': cons['mpileup_max_depth'],
+            'mpileup_min_base_quality': cons['mpileup_min_base_quality'],
+            'mpileup_min_mapping_quality': cons['mpileup_min_mapping_quality'],
+            'ivar_min_quality': cons['ivar_min_quality'],
+            'ivar_min_frequency_threshold': cons['ivar_min_frequency'],
+            'ivar_min_depth': cons['ivar_min_depth'],
+            'ivar_ambiguous_char': cons['ivar_ambiguous_char'],
         })
+
+        vc = config['variant_calling']
         tracker.record_step("Variant calling", "gatk HaplotypeCaller", {
-            'ploidy': 1,
-            'standard_min_confidence': 30,
-            'min_base_quality_score': 20,
+            'ploidy': vc['ploidy'],
+            'standard_min_confidence': vc['standard_min_confidence'],
+            'min_base_quality_score': vc['min_base_quality_score'],
         })
+
+        vf = config['vcf_filtering']
         tracker.record_step("VCF filtering", "gatk VariantFiltration + SelectVariants", {
-            'filter_QD': '< 2.0',
-            'filter_FS': '> 60.0 (strand bias)',
-            'filter_MQ': '< 40.0',
-            'filter_DP': '< 10',
-            'select': 'PASS variants only',
+            'filters': vf['filters'],
+            'select_pass_only': vf['select_pass_only'],
         })
+
         tracker.record_step("Variant annotation", "snpEff + SnpSift", {
-            'database': args.database_name,
+            'database': database_name,
+            'snpeff_memory': config['annotation']['snpeff_memory'],
             'input': 'filtered PASS variants',
         })
         logging.info("Completed variant_calling_consensus")
@@ -245,7 +277,8 @@ def main():
 
     try:
         logging.info("Starting summarize_result")
-        summarize_result(['--input_dir', args.output_dir, '--output_dir', args.output_dir])
+        summarize_result(['--input_dir', args.output_dir, '--output_dir', args.output_dir,
+                          '--database_name', database_name])
         tracker.record_step("Coverage summary", "summarize_result", {
             'metrics': 'mean, median, min, max, std, %genome at 1x/10x/30x/100x',
         })

@@ -5,6 +5,8 @@ import os
 import subprocess
 import logging
 
+from virus_pipeline.config import load_config
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def run_command(command):
@@ -31,7 +33,12 @@ def main(argv=None):
     parser.add_argument('--input_dir', type=str, help='Path to input directory containing SAM files.')
     parser.add_argument('--reference_fasta', type=str, help='Path to reference FASTA file.')
     parser.add_argument('--output_dir', type=str, help='Path to output directory for BAM files.')
+    parser.add_argument('--config', type=str, required=True, help='Path to virus config YAML file')
     args = parser.parse_args(argv)
+
+    config = load_config(args.config)
+    af = config['alignment_filtering']
+    dedup = config['deduplication']
 
     input_dir = os.path.abspath(args.input_dir)
     reference_fasta = os.path.abspath(args.reference_fasta)
@@ -50,45 +57,54 @@ def main(argv=None):
         logging.info(f"Processing: {sam_file}")
         sample_name = os.path.splitext(os.path.basename(sam_file))[0].replace('_aln', '')
 
-        # Convert SAM to BAM with MAPQ and flag filtering (Fix 5)
-        # -q 20: minimum mapping quality 20
-        # -F 0x904: exclude unmapped (0x4), secondary (0x100), supplementary (0x800)
+        # Convert SAM to BAM with MAPQ and flag filtering
         bam_file = os.path.join(output_dir, f"{sample_name}.bam")
         sam_to_bam_command = (
             f"samtools view -S -b -T {reference_fasta} "
-            f"-q 20 -F 0x904 "
+            f"-q {af['min_mapping_quality']} -F {af['exclude_flags']} "
             f"{sam_file} > {bam_file}"
         )
         run_command(sam_to_bam_command)
         validate_bam(bam_file)
 
-        # Add mate information for duplicate marking (Fix 2)
-        fixmate_bam = os.path.join(output_dir, f"{sample_name}.fixmate.bam")
-        fixmate_command = f"samtools fixmate -m {bam_file} {fixmate_bam}"
-        run_command(fixmate_command)
+        if dedup['enabled']:
+            # Add mate information for duplicate marking
+            fixmate_bam = os.path.join(output_dir, f"{sample_name}.fixmate.bam")
+            fixmate_command = f"samtools fixmate -m {bam_file} {fixmate_bam}"
+            run_command(fixmate_command)
 
-        # Sort BAM file
-        sorted_bam_file = os.path.join(output_dir, f"{sample_name}.sorted.bam")
-        sort_command = f"samtools sort -T {os.path.join(output_dir, f'temp_{sample_name}')} -o {sorted_bam_file} {fixmate_bam}"
-        run_command(sort_command)
+            # Sort BAM file
+            sorted_bam_file = os.path.join(output_dir, f"{sample_name}.sorted.bam")
+            sort_command = f"samtools sort -T {os.path.join(output_dir, f'temp_{sample_name}')} -o {sorted_bam_file} {fixmate_bam}"
+            run_command(sort_command)
 
-        # Mark and remove duplicates (Fix 2)
-        dedup_bam = os.path.join(output_dir, f"{sample_name}.dedup.bam")
-        markdup_command = f"samtools markdup -r -s {sorted_bam_file} {dedup_bam}"
-        run_command(markdup_command)
-        os.rename(dedup_bam, sorted_bam_file)
-        validate_bam(sorted_bam_file)
+            # Mark and remove duplicates
+            dedup_bam = os.path.join(output_dir, f"{sample_name}.dedup.bam")
+            markdup_flags = "-r -s" if dedup['remove_duplicates'] else "-s"
+            markdup_command = f"samtools markdup {markdup_flags} {sorted_bam_file} {dedup_bam}"
+            run_command(markdup_command)
+            os.rename(dedup_bam, sorted_bam_file)
+            validate_bam(sorted_bam_file)
+
+            # Clean up intermediate files
+            for tmp in [bam_file, fixmate_bam]:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+        else:
+            # No dedup: just sort
+            sorted_bam_file = os.path.join(output_dir, f"{sample_name}.sorted.bam")
+            sort_command = f"samtools sort -T {os.path.join(output_dir, f'temp_{sample_name}')} -o {sorted_bam_file} {bam_file}"
+            run_command(sort_command)
+            validate_bam(sorted_bam_file)
+
+            if os.path.exists(bam_file):
+                os.remove(bam_file)
 
         # Index BAM file
         index_command = f"samtools index {sorted_bam_file}"
         run_command(index_command)
 
-        # Clean up intermediate files
-        for tmp in [bam_file, fixmate_bam]:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-
-        logging.info(f"Sorted, deduplicated BAM file generated and indexed: {sorted_bam_file}")
+        logging.info(f"Sorted BAM file generated and indexed: {sorted_bam_file}")
 
 if __name__ == '__main__':
     main()

@@ -5,6 +5,8 @@ import subprocess
 import os
 import logging
 
+from virus_pipeline.config import load_config
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def run_command(command):
@@ -29,11 +31,15 @@ def samplesheet_verify(samplesheet):
 def main(argv=None):
     if argv is None:
         argv = sys.argv[1:]
-    
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--samplesheet', type=str, help='Path to sample sheet with columns "sample_name", "read1", "read2".')
     parser.add_argument('--reference', type=str, help='Path to reference FASTA file')
+    parser.add_argument('--config', type=str, required=True, help='Path to virus config YAML file')
     args = parser.parse_args(argv)
+
+    config = load_config(args.config)
+    fp = config['fastp']
 
     samples = samplesheet_verify(args.samplesheet)
     base_dir = os.path.abspath(os.path.dirname(args.samplesheet))
@@ -46,7 +52,7 @@ def main(argv=None):
     stdout, stderr = run_command(index_command)
     logging.info(stdout)
     logging.info(stderr)
-          
+
     for i, row in samples.iterrows():
         sample_name = row['sample_name']
         read1 = row['read1']
@@ -55,41 +61,51 @@ def main(argv=None):
         sample_folder = os.path.join(base_dir, f"{sample_name}_output")
         os.makedirs(sample_folder, exist_ok=True)
 
-        # fastp with explicit quality parameters
+        # fastp with parameters from config
         trimmed_r1 = os.path.join(sample_folder, f'{sample_name}_trimmed_R1.fastq.gz')
         trimmed_r2 = os.path.join(sample_folder, f'{sample_name}_trimmed_R2.fastq.gz')
         fastp_json = os.path.join(sample_folder, f'{sample_name}_fastp.json')
         fastp_html = os.path.join(sample_folder, f'{sample_name}_fastp.html')
-        fastp_command = (
-            f"fastp -i {read1} -I {read2} "
-            f"-o {trimmed_r1} -O {trimmed_r2} "
-            f"--qualified_quality_phred 20 "
-            f"--length_required 50 "
-            f"--cut_front --cut_tail "
-            f"--cut_window_size 4 "
-            f"--cut_mean_quality 20 "
-            f"--detect_adapter_for_pe "
-            f"--correction "
-            f"--overlap_len_require 30 "
-            f"--json {fastp_json} "
-            f"--html {fastp_html} "
-            f"--thread 4"
-        )
+
+        fastp_parts = [
+            f"fastp -i {read1} -I {read2}",
+            f"-o {trimmed_r1} -O {trimmed_r2}",
+            f"--qualified_quality_phred {fp['qualified_quality_phred']}",
+            f"--length_required {fp['length_required']}",
+            f"--cut_window_size {fp['cut_window_size']}",
+            f"--cut_mean_quality {fp['cut_mean_quality']}",
+            f"--overlap_len_require {fp['overlap_len_require']}",
+            f"--json {fastp_json}",
+            f"--html {fastp_html}",
+            f"--thread {fp['threads']}",
+        ]
+        if fp['cut_front']:
+            fastp_parts.append("--cut_front")
+        if fp['cut_tail']:
+            fastp_parts.append("--cut_tail")
+        if fp['detect_adapter_for_pe']:
+            fastp_parts.append("--detect_adapter_for_pe")
+        if fp['correction']:
+            fastp_parts.append("--correction")
+
+        fastp_command = " ".join(fastp_parts)
         logging.info(f"Running fastp for sample {sample_name}...")
         stdout, stderr = run_command(fastp_command)
         logging.info(stdout)
-        logging.info(stderr)  
+        logging.info(stderr)
 
         # FastQC
-        fastqc_command = f"fastqc {os.path.join(sample_folder, f'{sample_name}_trimmed_R1.fastq.gz')} {os.path.join(sample_folder, f'{sample_name}_trimmed_R2.fastq.gz')} --outdir={sample_folder}"
+        fastqc_command = (
+            f"fastqc {trimmed_r1} {trimmed_r2} --outdir={sample_folder}"
+        )
         logging.info(f"Running FastQC for sample {sample_name}...")
         stdout, stderr = run_command(fastqc_command)
         logging.info(stdout)
         logging.info(stderr)
-        
+
         # Mapping with bwa-mem2
         sam_file = os.path.join(sample_folder, f"{sample_name}_aln.sam")
-        bwa_command = f"bwa-mem2 mem {args.reference} {os.path.join(sample_folder, f'{sample_name}_trimmed_R1.fastq.gz')} {os.path.join(sample_folder, f'{sample_name}_trimmed_R2.fastq.gz')} > {sam_file}"
+        bwa_command = f"bwa-mem2 mem {args.reference} {trimmed_r1} {trimmed_r2} > {sam_file}"
         logging.info(f"Running bwa-mem2 for sample {sample_name}...")
         stdout, stderr = run_command(bwa_command)
         logging.info(stdout)

@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import re
 import logging
 
+from virus_pipeline.config import load_config
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def run_command(command):
@@ -95,64 +97,77 @@ def add_read_groups(bam_file, sample_name, output_dir):
     run_command(f"samtools index {rg_bam}")
     return rg_bam
 
-def run_variant_calling(bam_file, reference_fasta, sample_name, output_dir):
+def run_variant_calling(bam_file, reference_fasta, sample_name, output_dir, config):
     validate_bam(bam_file)
     raw_vcf = os.path.join(output_dir, f"{sample_name}.vcf")
-    # Fix 3: Added -ploidy 1 for haploid virus genome
+    vc = config['variant_calling']
     gatk_command = (
         f"gatk HaplotypeCaller "
         f"-R {reference_fasta} "
         f"-I {bam_file} "
         f"-O {raw_vcf} "
-        f"-ploidy 1 "
-        f"--standard-min-confidence-threshold-for-calling 30 "
-        f"--min-base-quality-score 20"
+        f"-ploidy {vc['ploidy']} "
+        f"--standard-min-confidence-threshold-for-calling {vc['standard_min_confidence']} "
+        f"--min-base-quality-score {vc['min_base_quality_score']}"
     )
     stdout, stderr = run_command(gatk_command)
     logging.info(f"GATK HaplotypeCaller output: {stdout}")
     logging.info(f"GATK HaplotypeCaller error: {stderr}")
     return raw_vcf
 
-def filter_vcf(raw_vcf, reference_fasta, sample_name, output_dir):
-    """Fix 4: Filter VCF for quality, depth, and strand bias."""
+def filter_vcf(raw_vcf, reference_fasta, sample_name, output_dir, config):
+    """Filter VCF for quality, depth, and strand bias."""
+    vf = config['vcf_filtering']
     filtered_vcf = os.path.join(output_dir, f"{sample_name}_filtered.vcf")
+
+    # Build filter expressions from config
+    filter_parts = []
+    for filter_name, expression in vf['filters'].items():
+        filter_parts.append(f"--filter-expression '{expression}' --filter-name '{filter_name}'")
+
     filter_command = (
         f"gatk VariantFiltration "
         f"-R {reference_fasta} "
         f"-V {raw_vcf} "
-        f"--filter-expression 'QD < 2.0' --filter-name 'LowQD' "
-        f"--filter-expression 'FS > 60.0' --filter-name 'StrandBias' "
-        f"--filter-expression 'MQ < 40.0' --filter-name 'LowMQ' "
-        f"--filter-expression 'DP < 10' --filter-name 'LowDepth' "
+        f"{' '.join(filter_parts)} "
         f"-O {filtered_vcf}"
     )
     run_command(filter_command)
 
     # Select only PASS variants
     pass_vcf = os.path.join(output_dir, f"{sample_name}_pass.vcf")
-    select_command = (
-        f"gatk SelectVariants "
-        f"-R {reference_fasta} "
-        f"-V {filtered_vcf} "
-        f"--exclude-filtered "
-        f"-O {pass_vcf}"
-    )
-    run_command(select_command)
+    if vf['select_pass_only']:
+        select_command = (
+            f"gatk SelectVariants "
+            f"-R {reference_fasta} "
+            f"-V {filtered_vcf} "
+            f"--exclude-filtered "
+            f"-O {pass_vcf}"
+        )
+        run_command(select_command)
+    else:
+        pass_vcf = filtered_vcf
+
     logging.info(f"VCF filtering complete: {pass_vcf}")
     return pass_vcf
 
-def trim_primers(bam_file, primer_bed, sample_name, output_dir):
-    """Fix 7: Trim primer sequences from aligned reads using ivar trim."""
+def trim_primers(bam_file, primer_bed, sample_name, output_dir, config):
+    """Trim primer sequences from aligned reads using ivar trim."""
+    pt = config['primer_trimming']
     trimmed_prefix = os.path.join(output_dir, f"{sample_name}_trimmed")
     trimmed_bam = f"{trimmed_prefix}.bam"
     trimmed_sorted = os.path.join(output_dir, f"{sample_name}_trimmed.sorted.bam")
 
-    trim_command = (
-        f"ivar trim -b {primer_bed} "
-        f"-p {trimmed_prefix} "
-        f"-i {bam_file} "
-        f"-q 20 -m 30 -s 4 -e"
-    )
+    trim_parts = [
+        f"ivar trim -b {primer_bed}",
+        f"-p {trimmed_prefix}",
+        f"-i {bam_file}",
+        f"-q {pt['min_quality']} -m {pt['min_length']} -s {pt['sliding_window']}",
+    ]
+    if pt['include_reads_no_primer']:
+        trim_parts.append("-e")
+
+    trim_command = " ".join(trim_parts)
     run_command(trim_command)
 
     # Sort and index the trimmed BAM
@@ -166,12 +181,13 @@ def trim_primers(bam_file, primer_bed, sample_name, output_dir):
     logging.info(f"Primer trimming complete: {trimmed_sorted}")
     return trimmed_sorted
 
-def run_snpeff_annotation(raw_vcf, sample_name, output_dir, reference_name="denv1"):
+def run_snpeff_annotation(raw_vcf, sample_name, output_dir, config, reference_name="denv1"):
+    ann = config['annotation']
     annotated_vcf = os.path.join(output_dir, f"{sample_name}_annotated.vcf")
     summary_html = os.path.join(output_dir, f"{sample_name}_snpEff_summary.html")
     summary_csv = os.path.join(output_dir, f"{sample_name}_snpEff_summary.csv")
     snpeff_command = (
-        f"snpEff -Xmx4g "
+        f"snpEff -Xmx{ann['snpeff_memory']} "
         f"-c {os.path.join(output_dir, 'snpEff.config')} "
         f"-v {reference_name} "
         f"-s {summary_html} "
@@ -200,16 +216,21 @@ def run_snpsift_extract(annotated_vcf, sample_name, output_dir):
 def main(argv=None):
     if argv is None:
         argv = sys.argv[1:]
-    
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_dir', type=str, help='Path to input directory containing BAM files.')
     parser.add_argument('--reference_fasta', type=str, help='Path to reference FASTA file.')
     parser.add_argument('--output_dir', type=str, help='Path to output directory for consensus FASTA and VCF files.')
     parser.add_argument('--database_name', type=str, default="denv1", help='Name of the SnpEff database (default: denv1).')
+    parser.add_argument('--config', type=str, required=True, help='Path to virus config YAML file')
     parser.add_argument('--primer_bed', type=str, default=None,
-                        help='BED file with primer coordinates for ivar trim (Fix 7). '
+                        help='BED file with primer coordinates for ivar trim. '
                              'If not provided, primer trimming is skipped.')
     args = parser.parse_args(argv)
+
+    config = load_config(args.config)
+    cov = config['coverage']
+    cons = config['consensus']
 
     input_dir = args.input_dir
     reference_fasta = args.reference_fasta
@@ -223,8 +244,8 @@ def main(argv=None):
     if primer_bed:
         logging.info(f"Primer trimming enabled with BED file: {primer_bed}")
     else:
-        logging.warning("No primer BED file provided -- skipping primer trimming (Fix 7)")
-    
+        logging.warning("No primer BED file provided -- skipping primer trimming")
+
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -242,26 +263,33 @@ def main(argv=None):
             # Add read groups before GATK
             rg_bam = add_read_groups(bam_file, sample_name, output_dir)
 
-            # Fix 7: Primer trimming (if BED file provided)
+            # Primer trimming (if BED file provided)
             analysis_bam = rg_bam
             if primer_bed:
-                analysis_bam = trim_primers(rg_bam, primer_bed, sample_name, output_dir)
+                analysis_bam = trim_primers(rg_bam, primer_bed, sample_name, output_dir, config)
 
-            # Coverage calculation with quality filters (Fix 5 continued)
+            # Coverage calculation with quality filters from config
             coverage_file = os.path.join(output_dir, f"{sample_name}_coverage.txt")
             coverage_command = (
-                f"samtools depth -q 20 -Q 20 {analysis_bam} > {coverage_file}"
+                f"samtools depth -q {cov['min_base_quality']} -Q {cov['min_mapping_quality']} "
+                f"{analysis_bam} > {coverage_file}"
             )
             stdout, stderr = run_command(coverage_command)
             logging.info(f"Coverage command output: {stdout}")
             logging.info(f"Coverage command error: {stderr}")
             plot_coverage(coverage_file, output_dir)
 
-            # Fix 6: ivar consensus with majority-rule threshold and minimum depth
+            # ivar consensus with parameters from config
             pileup_command = (
-                f"samtools mpileup -d 10000 -Q 20 -q 20 "
+                f"samtools mpileup -d {cons['mpileup_max_depth']} "
+                f"-Q {cons['mpileup_min_base_quality']} "
+                f"-q {cons['mpileup_min_mapping_quality']} "
                 f"{analysis_bam} | "
-                f"ivar consensus -p {sample_name} -q 20 -t 0.5 -m 10 -n N"
+                f"ivar consensus -p {sample_name} "
+                f"-q {cons['ivar_min_quality']} "
+                f"-t {cons['ivar_min_frequency']} "
+                f"-m {cons['ivar_min_depth']} "
+                f"-n {cons['ivar_ambiguous_char']}"
             )
             stdout, stderr = run_command(pileup_command)
             logging.info(f"Consensus command output: {stdout}")
@@ -269,15 +297,15 @@ def main(argv=None):
             consensus_fasta = f"{sample_name}.fa"
             os.rename(consensus_fasta, os.path.join(output_dir, consensus_fasta))
 
-            # Variant calling (Fix 3: ploidy=1 applied inside function)
-            raw_vcf = run_variant_calling(analysis_bam, reference_fasta, sample_name, output_dir)
+            # Variant calling (ploidy from config)
+            raw_vcf = run_variant_calling(analysis_bam, reference_fasta, sample_name, output_dir, config)
 
-            # Fix 4: VCF filtering before annotation
-            filtered_vcf = filter_vcf(raw_vcf, reference_fasta, sample_name, output_dir)
+            # VCF filtering (thresholds from config)
+            filtered_vcf = filter_vcf(raw_vcf, reference_fasta, sample_name, output_dir, config)
 
             # Annotate filtered variants
             annotated_vcf, summary_html, summary_csv, summary_txt = run_snpeff_annotation(
-                filtered_vcf, sample_name, output_dir, database_name)
+                filtered_vcf, sample_name, output_dir, config, database_name)
             snpsift_output = run_snpsift_extract(annotated_vcf, sample_name, output_dir)
             logging.info(
                 f"Processing complete for {sample_name}: "

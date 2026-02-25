@@ -23,10 +23,15 @@ class ProvenanceTracker:
         self.steps = []
         self.tool_versions = {}
         self.pipeline_args = {}
+        self.config = {}
 
     def set_pipeline_args(self, args_dict):
         """Record the top-level pipeline arguments."""
         self.pipeline_args = {k: str(v) for k, v in args_dict.items()}
+
+    def set_config(self, config_dict):
+        """Record the full virus config used for this run."""
+        self.config = config_dict
 
     def detect_tool_version(self, tool_name, version_cmd):
         """Detect and record the version of a tool."""
@@ -92,7 +97,7 @@ class ProvenanceTracker:
 
     def to_dict(self):
         """Return the full provenance record as a dictionary."""
-        return {
+        result = {
             'pipeline': 'Virus-Variant-Calling-Pipeline',
             'run_start': self.start_time,
             'run_end': datetime.datetime.now().isoformat(),
@@ -100,6 +105,9 @@ class ProvenanceTracker:
             'tool_versions': self.tool_versions,
             'steps': self.steps,
         }
+        if self.config:
+            result['virus_config'] = self.config
+        return result
 
     def write_json(self, filename='provenance.json'):
         """Write provenance log as JSON."""
@@ -129,6 +137,19 @@ class ProvenanceTracker:
             for k, v in data['pipeline_arguments'].items():
                 f.write(f"  {k}: {v}\n")
             f.write("\n")
+
+            # Virus config
+            if data.get('virus_config'):
+                vc = data['virus_config']
+                f.write("-" * 80 + "\n")
+                f.write("VIRUS CONFIGURATION\n")
+                f.write("-" * 80 + "\n")
+                f.write(f"  Virus: {vc.get('virus_name', 'N/A')}\n")
+                f.write(f"  Genome type: {vc.get('genome_type', 'N/A')}\n")
+                f.write(f"  Ploidy: {vc.get('ploidy', 'N/A')}\n")
+                f.write(f"  Expected genome size: {vc.get('expected_genome_size', 'N/A')} bp\n")
+                f.write(f"  Database name: {vc.get('database_name', 'N/A')}\n")
+                f.write("\n")
 
             # Tool versions
             f.write("-" * 80 + "\n")
