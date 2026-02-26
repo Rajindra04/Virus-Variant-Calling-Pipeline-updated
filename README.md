@@ -2,6 +2,7 @@
 
 This pipeline processes paired-end FASTQ files to perform variant calling and generate consensus sequences for viral genomes, specifically designed for Dengue virus (DENV1). It uses a series of bioinformatics tools to map reads, convert SAM to BAM, call variants, annotate them with SnpEff, and summarize results.
 
+```mermaid
 graph TD
     %% Input Files
     subgraph Inputs ["Input Data"]
@@ -30,7 +31,7 @@ graph TD
         PRIMER[Amplicon Primer Trimming <br/> <i>iVar</i>]
     end
 
-    %% Step 4: Database Creation
+    %% Step 4: Annotation Database
     subgraph S4 ["4. Annotation Database"]
         SNPEFF_DB[Build SnpEff Database <br/> <i>create_snpeff_database.py</i>]
     end
@@ -94,7 +95,8 @@ graph TD
     class F1,REF,GB inputs;
     class VCF,FASTA,CSV,JSON outputs;
     class SS,FASTQC1,FASTP,BWA,SAMBAM,SORT,ALIGN_FILT,PRIMER,SNPEFF_DB,GATK,VAR_FILT,CONSENSUS,ANNOTATE,SUMMARIZE process;
-    
+```
+ 
 ## Table of Contents
 - [Overview](#overview)
 - [Prerequisites](#prerequisites)
