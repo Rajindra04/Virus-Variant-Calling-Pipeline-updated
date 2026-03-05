@@ -146,6 +146,17 @@ def main(argv=None):
 
     output_file = os.path.join(output_dir, "summary_table.csv")
     summary_df.to_csv(output_file, index=False)
+
+    # Frameshift QC warning
+    if 'Total_variants_effect_frameshift_variant' in summary_df.columns:
+        frameshift_total = summary_df['Total_variants_effect_frameshift_variant'].sum()
+        if frameshift_total > 0:
+            logging.warning(
+                "QC ALERT: %d frameshift variant(s) detected. "
+                "For single-polyprotein viruses, frameshifts may indicate "
+                "alignment artifacts or assembly errors. Review the annotations TSV.",
+                int(frameshift_total)
+            )
     logging.info(f"Summary table saved to {output_file}")
 
     chart_data = {

@@ -1,8 +1,8 @@
-virus_name: "Dengue virus serotype 3"
+virus_name: "dengue virus type 3"
 genome_type: "ssRNA(+)"
 ploidy: 1
 expected_genome_size: 10707
-database_name: "NC_001475.2"   # Accession number used for SnpEff database
+database_name: "NC_001475.2"
 
 fastp:
   qualified_quality_phred: 20
@@ -50,25 +50,23 @@ variant_calling:
 
 vcf_filtering:
   filters:
-    LowQD:       "QD < 2.0"
-    StrandBias:  "FS > 60.0"
-    LowMQ:       "MQ < 40.0"
-    LowDepth:    "DP < 20"
+    LowQD: "QD < 2.0"
+    StrandBias: "FS > 60.0"
+    LowMQ: "MQ < 40.0"
+    LowDepth: "DP < 20"
   select_pass_only: true
 
 annotation:
   snpeff_memory: "4g"
 
-# Transcript-to-protein name mapping for human-readable annotation
 transcript_annotations:
   "DV3_gp1": "Polyprotein"
-  "YP_001621843.1": "Polyprotein"
-  "YP_001531165.2": "Anchored capsid (ancC)"
-  "YP_001531164.2": "Capsid (C)"
-  "YP_001531166.1": "Premembrane (prM)"
-  "YP_009164955.1": "Protein pr"
-  "YP_001531167.1": "Membrane (M)"
-  "YP_001531168.2": "Envelope (E)"
+  "YP_001531165.2": "ancC"
+  "YP_001531164.2": "Capsid"
+  "YP_001531166.1": "prM"
+  "YP_009164955.1": "pr"
+  "YP_001531167.1": "M"
+  "YP_001531168.2": "E"
   "YP_001531169.2": "NS1"
   "YP_001531170.2": "NS2A"
   "YP_001531171.3": "NS2B"

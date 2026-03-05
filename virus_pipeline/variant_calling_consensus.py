@@ -210,19 +210,6 @@ def run_snpeff_annotation(raw_vcf, sample_name, output_dir, config, reference_na
     logging.info(f"SnpEff annotation error: {stderr}")
     return annotated_vcf, summary_html, summary_csv, os.path.join(output_dir, f"{sample_name}_snpEff_summary.genes.txt")
 
-def run_snpsift_extract(annotated_vcf, sample_name, output_dir):
-    snpsift_output = os.path.join(output_dir, f"{sample_name}_snpSift.txt")
-    snpsift_command = (
-        f"SnpSift extractFields {annotated_vcf} "
-        f"CHROM POS REF ALT "
-        f"\"ANN[*].EFFECT\" \"ANN[*].IMPACT\" \"ANN[*].GENE\" \"ANN[*].GENEID\" "
-        f"\"ANN[*].FEATURE\" \"ANN[*].HGVS_C\" \"ANN[*].HGVS_P\" \"ANN[*].AA_POS\" "
-        f"\"EFF[*].CODON\" \"EFF[*].AA\" \"EFF[*].GENE\" > {snpsift_output}"
-    )
-    stdout, stderr = run_command(snpsift_command)
-    logging.info(f"SnpSift extract output: {stdout}")
-    logging.info(f"SnpSift extract error: {stderr}")
-    return snpsift_output
 
 def write_low_coverage_positions(coverage_file, output_dir, sample_name, min_depth=20):
     """Write a file listing positions with coverage below the consensus threshold."""
@@ -449,7 +436,7 @@ def main(argv=None):
 
             # ivar consensus with parameters from config
             pileup_command = (
-                f"samtools mpileup -d {cons['mpileup_max_depth']} "
+                f"samtools mpileup -aa -A -d {cons['mpileup_max_depth']} "
                 f"-Q {cons['mpileup_min_base_quality']} "
                 f"-q {cons['mpileup_min_mapping_quality']} "
                 f"{analysis_bam} | "
@@ -474,7 +461,6 @@ def main(argv=None):
             # Annotate filtered variants
             annotated_vcf, summary_html, summary_csv, summary_txt = run_snpeff_annotation(
                 filtered_vcf, sample_name, output_dir, config, database_name)
-            snpsift_output = run_snpsift_extract(annotated_vcf, sample_name, output_dir)
             annotation_tsv = create_annotation_tsv(annotated_vcf, sample_name, output_dir, config)
             logging.info(
                 f"Processing complete for {sample_name}: "
