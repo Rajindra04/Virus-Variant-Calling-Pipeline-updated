@@ -33,15 +33,14 @@ def main(argv=None):
 
 def get_fastq_files(directory):
     fastq_files = []
-    for root, dirs, files in os.walk(directory):
-        for file in files:
-            if file.endswith((".fastq.gz", ".fq.gz")):
-                fastq_files.append(os.path.join(root, file))
+    for file in os.listdir(directory):
+        if file.endswith((".fastq.gz", ".fq.gz")):
+            fastq_files.append(os.path.join(directory, file))
     return fastq_files
 
 def find_pair(fastq, fastq_files):
     base = os.path.basename(fastq)
-    for suffix in ["_R1_", "_1_", "_forward_"]:
+    for suffix in ["_R1_", "_R1.", "_1_", "_1.", "_forward_"]:
         if suffix in base:
             read1 = fastq
             read2_base = base.replace(suffix, suffix.replace("1", "2").replace("forward", "reverse"))
