@@ -5,8 +5,6 @@ import os
 import json
 import argparse
 import logging
-from openpyxl import load_workbook
-from openpyxl.workbook.views import BookView
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -22,15 +20,6 @@ def load_transcript_map(config_path):
     except Exception as e:
         logging.warning(f"Could not load transcript map from {config_path}: {e}")
         return {}
-
-def fix_excel_window(filepath):
-    """Set reasonable Excel window dimensions."""
-    try:
-        wb = load_workbook(filepath)
-        wb.views = [BookView(windowWidth=19200, windowHeight=12000)]
-        wb.save(filepath)
-    except Exception as e:
-        logging.warning(f'Could not fix Excel window for {filepath}: {e}')
 
 def main(argv=None):
     if argv is None:

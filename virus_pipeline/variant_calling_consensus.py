@@ -306,20 +306,41 @@ def create_annotation_tsv(annotated_vcf, sample_name, output_dir, config):
             if ann_str:
                 annotations = ann_str.split(',')
 
-                # Try to find a specific protein annotation (not Polyprotein)
-                best_ann = None
+                # Score impacts for comparison
+                impact_rank = {'HIGH': 4, 'MODERATE': 3, 'LOW': 2, 'MODIFIER': 1}
+
+                # Find the best non-Polyprotein annotation (highest impact)
+                best_specific = None
+                best_specific_rank = 0
+                polyprotein_ann = None
+
                 for ann in annotations:
                     parts = ann.split('|')
                     if len(parts) >= 16:
                         feat_id = parts[6]
                         mapped_name = transcript_map.get(feat_id, '')
-                        if mapped_name and mapped_name != 'Polyprotein':
-                            best_ann = parts
-                            break
+                        rank = impact_rank.get(parts[2], 0)
 
-                # Fall back to the first annotation if no specific protein found
-                if best_ann is None and annotations:
-                    best_ann = annotations[0].split('|')
+                        # Save the polyprotein annotation as fallback
+                        if mapped_name == 'Polyprotein' and polyprotein_ann is None:
+                            polyprotein_ann = parts
+
+                        # Track the best non-Polyprotein annotation by impact
+                        if mapped_name and mapped_name != 'Polyprotein' and rank > best_specific_rank:
+                            best_specific = parts
+                            best_specific_rank = rank
+
+                # Decision logic:
+                # 1. If specific protein has impact >= polyprotein's, use it
+                # 2. If polyprotein has better impact, use polyprotein annotation
+                poly_rank = impact_rank.get(polyprotein_ann[2], 0) if polyprotein_ann else 0
+
+                if best_specific and best_specific_rank >= poly_rank:
+                    best_ann = best_specific
+                elif polyprotein_ann:
+                    best_ann = polyprotein_ann
+                else:
+                    best_ann = annotations[0].split('|') if annotations else None
 
                 if best_ann and len(best_ann) >= 16:
                     effect = best_ann[1]
