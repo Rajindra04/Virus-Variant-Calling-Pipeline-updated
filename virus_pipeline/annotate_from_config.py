@@ -203,8 +203,8 @@ def annotate_from_config(vcf_file, reference, config, sample_name, output_dir):
     """Annotate a filtered VCF using gene coordinates from config YAML."""
     gene_coords = config.get('gene_coordinates', {})
     if not gene_coords:
-        logging.error("No gene_coordinates found in config YAML")
-        return None
+        logging.error("No gene_coordinates found in config YAML. Run build_yaml.py with a config TSV that includes gene coordinates.")
+        sys.exit(1)
 
     _, ref_seq = read_fasta(reference)
 

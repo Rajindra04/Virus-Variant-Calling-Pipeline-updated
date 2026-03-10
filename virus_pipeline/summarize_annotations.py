@@ -41,6 +41,7 @@ def main(argv=None):
     # Aggregate: per-protein counts of each effect type across all samples
     # Also per-sample breakdown
     protein_effect_counts = defaultdict(lambda: defaultdict(int))
+    protein_samples = defaultdict(set)
     sample_data = []
 
     for ann_file in ann_files:
@@ -59,6 +60,7 @@ def main(argv=None):
                     continue
                 total_variants += 1
                 protein_effect_counts[protein][effect] += 1
+                protein_samples[protein].add(sample_name)
                 sample_effects[protein][effect] += 1
 
         sample_data.append({
@@ -71,7 +73,7 @@ def main(argv=None):
     summary_rows = []
     for protein in sorted(protein_effect_counts.keys()):
         counts = protein_effect_counts[protein]
-        row = {'Protein': protein, 'Samples': len(ann_files)}
+        row = {'Protein': protein, 'Samples': ';'.join(sorted(protein_samples.get(protein, set())))}
         total = 0
         for eff in EFFECT_COLUMNS:
             row[eff] = counts.get(eff, 0)
