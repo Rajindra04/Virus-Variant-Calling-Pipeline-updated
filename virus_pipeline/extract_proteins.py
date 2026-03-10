@@ -110,31 +110,50 @@ def parse_config_tsv(filepath):
     return proteins
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description='Extract protein sequences from consensus FASTAs')
-    parser.add_argument('--consensus_dir', required=True,
-                        help='Directory containing consensus .fa files')
-    parser.add_argument('--config_tsv', required=True,
-                        help='Config review TSV with transcript annotations')
-    parser.add_argument('--reference', required=True,
-                        help='Reference FASTA file')
-    parser.add_argument('--output_dir', required=True,
-                        help='Output directory for protein FASTAs')
-    args = parser.parse_args()
+def parse_config_yaml(config_path):
+    """Parse gene_coordinates from a pipeline YAML config as an alternative to TSV."""
+    import yaml
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
 
-    os.makedirs(args.output_dir, exist_ok=True)
+    gene_coords = config.get('gene_coordinates', {})
+    proteins = []
+    for pname, info in gene_coords.items():
+        if info.get('feature_type') != 'mat_peptide':
+            continue
+        if pname == 'ancC':
+            continue
+        proteins.append({
+            'feature_id': info.get('feature_id', ''),
+            'protein_name': pname,
+            'product': '',
+            'start': info['start'],
+            'end': info['end'],
+        })
+    return proteins
 
-    # Parse protein definitions
-    proteins = parse_config_tsv(args.config_tsv)
+
+def run_extraction(consensus_dir, config_source, reference, output_dir):
+    """Run protein extraction programmatically.
+
+    config_source: path to config review TSV or pipeline YAML config.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Try TSV first, fall back to YAML
+    if config_source.endswith('.yaml') or config_source.endswith('.yml'):
+        proteins = parse_config_yaml(config_source)
+    else:
+        proteins = parse_config_tsv(config_source)
+
     if not proteins:
-        logging.error("No mature peptide annotations found in config TSV")
-        sys.exit(1)
+        logging.warning("No mature peptide annotations found, skipping protein extraction")
+        return
+
     logging.info(f"Found {len(proteins)} mature peptides: "
                  f"{', '.join(p['protein_name'] for p in proteins)}")
 
-    # Read reference
-    ref_header, ref_seq = read_fasta(args.reference)
+    ref_header, ref_seq = read_fasta(reference)
     ref_accession = ref_header.split()[0] if ref_header else 'REF'
 
     # Translate reference proteins
@@ -150,36 +169,32 @@ def main():
 
     # Find consensus FASTAs
     consensus_files = sorted([
-        f for f in os.listdir(args.consensus_dir)
+        f for f in os.listdir(consensus_dir)
         if f.endswith('.fa') or f.endswith('.fasta')
     ])
     if not consensus_files:
-        logging.error(f"No .fa/.fasta files found in {args.consensus_dir}")
-        sys.exit(1)
+        logging.warning(f"No .fa/.fasta files found in {consensus_dir}")
+        return
     logging.info(f"Found {len(consensus_files)} consensus files")
 
     # Open output FASTA files and write reference sequences first
     fasta_handles = {}
     for prot in proteins:
         pname = prot['protein_name']
-        out_path = os.path.join(args.output_dir, f"{pname}.fasta")
+        out_path = os.path.join(output_dir, f"{pname}.fasta")
         fh = open(out_path, 'w')
         write_fasta_seq(fh, f"REF|{pname}|{ref_accession}", ref_proteins[pname])
         fasta_handles[pname] = fh
 
-    # Summary data
     summary_rows = []
-
-    # Process each sample
     for cf in consensus_files:
         sample = cf.replace('.fa', '').replace('.fasta', '')
-        _, cons_seq = read_fasta(os.path.join(args.consensus_dir, cf))
+        _, cons_seq = read_fasta(os.path.join(consensus_dir, cf))
 
         for prot in proteins:
             pname = prot['protein_name']
             ref_prot = ref_proteins[pname]
 
-            # Extract and translate
             nuc = cons_seq[prot['start'] - 1:prot['end']]
             nt_len = len(nuc)
             if nt_len % 3 != 0:
@@ -188,13 +203,11 @@ def main():
                 nuc = nuc[:nt_len - (nt_len % 3)]
             sample_prot = translate(nuc)
 
-            # Calculate coverage (non-X positions)
             aa_len = len(sample_prot)
             x_count = sample_prot.count('X')
             callable_count = aa_len - x_count
             coverage_pct = round(callable_count / aa_len * 100, 1) if aa_len > 0 else 0
 
-            # Find mutations (skip X positions)
             mutations = []
             for i in range(min(len(ref_prot), len(sample_prot))):
                 if sample_prot[i] == 'X':
@@ -203,12 +216,9 @@ def main():
                     mutations.append(f"{ref_prot[i]}{i + 1}{sample_prot[i]}")
 
             mut_str = ','.join(mutations) if mutations else 'none'
-
-            # Write FASTA entry
             header = f"{sample}|{pname}|mutations:{mut_str}|coverage:{coverage_pct}%"
             write_fasta_seq(fasta_handles[pname], header, sample_prot)
 
-            # Summary row
             summary_rows.append({
                 'SAMPLE': sample,
                 'PROTEIN': pname,
@@ -218,12 +228,10 @@ def main():
                 'MUTATIONS': mut_str,
             })
 
-    # Close FASTA handles
     for fh in fasta_handles.values():
         fh.close()
 
-    # Write summary TSV
-    summary_path = os.path.join(args.output_dir, 'protein_summary.tsv')
+    summary_path = os.path.join(output_dir, 'protein_summary.tsv')
     summary_header = ['SAMPLE', 'PROTEIN', 'AA_LENGTH', 'COVERAGE_PCT',
                       'N_MUTATIONS', 'MUTATIONS']
     with open(summary_path, 'w') as f:
@@ -231,9 +239,22 @@ def main():
         for row in summary_rows:
             f.write('\t'.join(str(row[h]) for h in summary_header) + '\n')
 
-    logging.info(f"Summary written to {summary_path}")
-    logging.info(f"Protein FASTAs written to {args.output_dir}/")
+    logging.info(f"Protein summary: {summary_path} ({len(consensus_files)} samples)")
 
 
+def main():
+    parser = argparse.ArgumentParser(
+        description='Extract protein sequences from consensus FASTAs')
+    parser.add_argument('--consensus_dir', required=True,
+                        help='Directory containing consensus .fa files')
+    parser.add_argument('--config_tsv', required=True,
+                        help='Config review TSV or pipeline YAML config')
+    parser.add_argument('--reference', required=True,
+                        help='Reference FASTA file')
+    parser.add_argument('--output_dir', required=True,
+                        help='Output directory for protein FASTAs')
+    args = parser.parse_args()
+
+    run_extraction(args.consensus_dir, args.config_tsv, args.reference, args.output_dir)
 if __name__ == '__main__':
     main()

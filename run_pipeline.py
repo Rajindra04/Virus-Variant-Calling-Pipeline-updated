@@ -17,6 +17,7 @@ from virus_pipeline import (
     summarize_snpEff,
 )
 from virus_pipeline.config import load_config
+from virus_pipeline.extract_proteins import run_extraction as extract_proteins
 from virus_pipeline.provenance import ProvenanceTracker
 
 # Configure logging
@@ -290,6 +291,24 @@ def main():
         tracker.write_json()
         tracker.write_report()
         sys.exit(1)
+
+    try:
+        logging.info("Starting extract_proteins")
+        proteins_dir = os.path.join(args.output_dir, 'proteins')
+        extract_proteins(
+            consensus_dir=args.output_dir,
+            config_source=args.config,
+            reference=args.reference_fasta,
+            output_dir=proteins_dir
+        )
+        tracker.record_step("Protein extraction", "extract_proteins", {
+            'output_dir': proteins_dir,
+        })
+        logging.info("Completed extract_proteins")
+    except Exception as e:
+        tracker.record_step("Protein extraction", "extract_proteins",
+                           {}, status="failed", notes=str(e))
+        logging.warning(f"Protein extraction failed (non-fatal): {e}")
 
     try:
         logging.info("Starting summarize_result")

@@ -475,7 +475,7 @@ def main(argv=None):
                 f"Processing complete for {sample_name}: "
                 f"consensus={os.path.join(output_dir, consensus_fasta)}, "
                 f"coverage={coverage_file}, filtered_vcf={filtered_vcf}, "
-                f"annotated_vcf={annotated_vcf}"
+                f"annotation_tsv={annotation_tsv}"
             )
         except Exception as e:
             print(f"Error occurred during processing {sample_name}: {str(e)}")
