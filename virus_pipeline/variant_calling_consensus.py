@@ -47,7 +47,7 @@ def validate_bam(bam_file):
         raise ValueError(f"BAM file {bam_file} contains no alignments")
     logging.info(f"BAM file {bam_file} validated successfully with {alignment_count} alignments")
 
-def plot_coverage(coverage_file, output_dir):
+def plot_coverage(coverage_file, output_dir, sample_name=None):
     positions = []
     depths = []
     with open(coverage_file, 'r') as file:
@@ -58,15 +58,26 @@ def plot_coverage(coverage_file, output_dir):
             positions.append(position)
             depths.append(depth)
 
-    plt.plot(positions, depths)
-    plt.xlabel('Position')
-    plt.ylabel('Coverage')
-    plt.title('Read Coverage')
-    plt.grid(True)
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.fill_between(positions, depths, alpha=0.4, color='steelblue')
+    ax.plot(positions, depths, linewidth=0.5, color='steelblue')
 
-    coverage_plot_file = os.path.join(output_dir, os.path.splitext(os.path.basename(coverage_file))[0] + '.png')
-    plt.savefig(coverage_plot_file)
-    plt.close()
+    # 20X threshold line (ivar consensus min depth)
+    ax.axhline(y=20, color='red', linestyle='--', linewidth=1, label='20X (consensus threshold)')
+
+    ax.set_yscale('log')
+    ax.set_ylim(bottom=0.5)  # So 0-depth positions show near the bottom
+    ax.set_xlabel('Genome Position (bp)')
+    ax.set_ylabel('Read Depth (log scale)')
+    title = f'Coverage: {sample_name}' if sample_name else 'Read Coverage'
+    ax.set_title(title)
+    ax.legend(loc='upper right')
+    ax.grid(True, alpha=0.3)
+
+    coverage_plot_file = os.path.join(output_dir,
+        os.path.splitext(os.path.basename(coverage_file))[0] + '.png')
+    fig.savefig(coverage_plot_file, dpi=150, bbox_inches='tight')
+    plt.close(fig)
 
     logging.info(f"Coverage plot generated: {coverage_plot_file}")
 
@@ -197,21 +208,158 @@ def run_snpeff_annotation(raw_vcf, sample_name, output_dir, config, reference_na
     stdout, stderr = run_command(snpeff_command)
     logging.info(f"SnpEff annotation output: {stdout}")
     logging.info(f"SnpEff annotation error: {stderr}")
-    return annotated_vcf, summary_html, summary_csv, os.path.join(output_dir, f"{sample_name}_snpEff_genes.txt")
+    return annotated_vcf, summary_html, summary_csv, os.path.join(output_dir, f"{sample_name}_snpEff_summary.genes.txt")
 
-def run_snpsift_extract(annotated_vcf, sample_name, output_dir):
-    snpsift_output = os.path.join(output_dir, f"{sample_name}_snpSift.txt")
-    snpsift_command = (
-        f"SnpSift extractFields {annotated_vcf} "
-        f"CHROM POS REF ALT "
-        f"\"ANN[*].EFFECT\" \"ANN[*].IMPACT\" \"ANN[*].GENE\" \"ANN[*].GENEID\" "
-        f"\"ANN[*].FEATURE\" \"ANN[*].HGVS_C\" \"ANN[*].HGVS_P\" \"ANN[*].AA_POS\" "
-        f"\"EFF[*].CODON\" \"EFF[*].AA\" \"EFF[*].GENE\" > {snpsift_output}"
-    )
-    stdout, stderr = run_command(snpsift_command)
-    logging.info(f"SnpSift extract output: {stdout}")
-    logging.info(f"SnpSift extract error: {stderr}")
-    return snpsift_output
+
+def write_low_coverage_positions(coverage_file, output_dir, sample_name, min_depth=20):
+    """Write a file listing positions with coverage below the consensus threshold."""
+    low_cov_file = os.path.join(output_dir, f"{sample_name}_low_coverage.tsv")
+    low_cov_count = 0
+    total_positions = 0
+
+    with open(coverage_file, 'r') as fin, open(low_cov_file, 'w') as fout:
+        fout.write("CHROM\tPOSITION\tDEPTH\n")
+        for line in fin:
+            columns = line.strip().split('\t')
+            chrom = columns[0]
+            pos = int(columns[1])
+            depth = int(columns[2])
+            total_positions += 1
+            if depth < min_depth:
+                fout.write(f"{chrom}\t{pos}\t{depth}\n")
+                low_cov_count += 1
+
+    logging.info(f"Low coverage file: {low_cov_file} "
+                 f"({low_cov_count}/{total_positions} positions below {min_depth}X)")
+    return low_cov_file
+
+def create_annotation_tsv(annotated_vcf, sample_name, output_dir, config):
+    """Parse annotated VCF and create user-friendly TSV with one row per variant."""
+    transcript_map = config.get('transcript_annotations', {})
+    output_file = os.path.join(output_dir, f"{sample_name}_annotations.tsv")
+
+    header = [
+        "CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER",
+        "Total_Depth", "Allele_Frequency", "Strand_Bias", "Allelic_Depths",
+        "EFFECT", "PUTATIVE_IMPACT", "GENE_NAME", "GENE_ID",
+        "FEATURE_TYPE", "FEATURE_ID", "TRANSCRIPT_TYPE",
+        "HGVSc", "HGVSp",
+        "cDNA_POSITION_AND_LENGTH", "CDS_POSITION_AND_LENGTH",
+        "PROTEIN_POSITION_AND_LENGTH", "ERROR"
+    ]
+
+    rows = []
+    with open(annotated_vcf, 'r') as f:
+        for line in f:
+            if line.startswith('#'):
+                continue
+            fields = line.strip().split('\t')
+            if len(fields) < 8:
+                continue
+            chrom = fields[0]
+            pos = fields[1]
+            vid = fields[2]
+            ref = fields[3]
+            alt = fields[4]
+            qual = fields[5]
+            filt = fields[6]
+            info = fields[7]
+
+            # Parse INFO field
+            info_dict = {}
+            for item in info.split(';'):
+                if '=' in item:
+                    k, v = item.split('=', 1)
+                    info_dict[k] = v
+
+            total_depth = info_dict.get('DP', '')
+            allele_freq = info_dict.get('AF', '')
+            strand_bias = info_dict.get('FS', '')
+
+            # Get AD from FORMAT field (ref,alt depths)
+            allelic_depths = ''
+            if len(fields) > 9:
+                fmt_keys = fields[8].split(':')
+                fmt_vals = fields[9].split(':')
+                fmt_dict = dict(zip(fmt_keys, fmt_vals))
+                allelic_depths = fmt_dict.get('AD', '')
+
+            # Parse ANN field - take the FIRST annotation (highest impact)
+            ann_str = info_dict.get('ANN', '')
+            effect = impact = gene_name = gene_id = ''
+            feature_type = feature_id = transcript_type = ''
+            hgvsc = hgvsp = cdna_pos = cds_pos = protein_pos = error = ''
+
+            if ann_str:
+                annotations = ann_str.split(',')
+
+                # Score impacts for comparison
+                impact_rank = {'HIGH': 4, 'MODERATE': 3, 'LOW': 2, 'MODIFIER': 1}
+
+                # Find the best non-Polyprotein annotation (highest impact)
+                best_specific = None
+                best_specific_rank = 0
+                polyprotein_ann = None
+
+                for ann in annotations:
+                    parts = ann.split('|')
+                    if len(parts) >= 16:
+                        feat_id = parts[6]
+                        mapped_name = transcript_map.get(feat_id, '')
+                        rank = impact_rank.get(parts[2], 0)
+
+                        # Save the polyprotein annotation as fallback
+                        if mapped_name == 'Polyprotein' and polyprotein_ann is None:
+                            polyprotein_ann = parts
+
+                        # Track the best non-Polyprotein annotation by impact
+                        if mapped_name and mapped_name != 'Polyprotein' and rank > best_specific_rank:
+                            best_specific = parts
+                            best_specific_rank = rank
+
+                # Decision logic:
+                # 1. If specific protein has impact >= polyprotein's, use it
+                # 2. If polyprotein has better impact, use polyprotein annotation
+                poly_rank = impact_rank.get(polyprotein_ann[2], 0) if polyprotein_ann else 0
+
+                if best_specific and best_specific_rank >= poly_rank:
+                    best_ann = best_specific
+                elif polyprotein_ann:
+                    best_ann = polyprotein_ann
+                else:
+                    best_ann = annotations[0].split('|') if annotations else None
+
+                if best_ann and len(best_ann) >= 16:
+                    effect = best_ann[1]
+                    impact = best_ann[2]
+                    gene_name_raw = best_ann[3]
+                    gene_id = best_ann[4]
+                    feature_type = best_ann[5]
+                    feature_id = best_ann[6]
+                    transcript_type = best_ann[7]
+                    hgvsc = best_ann[9]
+                    hgvsp = best_ann[10]
+                    cdna_pos = best_ann[11]
+                    cds_pos = best_ann[12]
+                    protein_pos = best_ann[13]
+                    error = best_ann[15] if len(best_ann) > 15 else ''
+                    gene_name = transcript_map.get(feature_id, gene_name_raw)
+
+            rows.append([
+                chrom, pos, vid, ref, alt, qual, filt,
+                total_depth, allele_freq, strand_bias, allelic_depths,
+                effect, impact, gene_name, gene_id,
+                feature_type, feature_id, transcript_type,
+                hgvsc, hgvsp, cdna_pos, cds_pos, protein_pos, error
+            ])
+
+    with open(output_file, 'w') as f:
+        f.write('\t'.join(header) + '\n')
+        for row in rows:
+            f.write('\t'.join(str(x) for x in row) + '\n')
+
+    logging.info(f"Annotation TSV created: {output_file} ({len(rows)} variants)")
+    return output_file
 
 def main(argv=None):
     if argv is None:
@@ -226,6 +374,9 @@ def main(argv=None):
     parser.add_argument('--primer_bed', type=str, default=None,
                         help='BED file with primer coordinates for ivar trim. '
                              'If not provided, primer trimming is skipped.')
+    parser.add_argument('--annotation_mode', type=str, default='snpeff',
+                        choices=['snpeff', 'config'],
+                        help='Annotation mode: snpeff (default) or config (lightweight)')
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
@@ -271,17 +422,24 @@ def main(argv=None):
             # Coverage calculation with quality filters from config
             coverage_file = os.path.join(output_dir, f"{sample_name}_coverage.txt")
             coverage_command = (
-                f"samtools depth -q {cov['min_base_quality']} -Q {cov['min_mapping_quality']} "
+                f"samtools depth -a -q {cov['min_base_quality']} -Q {cov['min_mapping_quality']} "
                 f"{analysis_bam} > {coverage_file}"
             )
             stdout, stderr = run_command(coverage_command)
             logging.info(f"Coverage command output: {stdout}")
             logging.info(f"Coverage command error: {stderr}")
-            plot_coverage(coverage_file, output_dir)
+            plot_coverage(coverage_file, output_dir, sample_name=sample_name)
+            write_low_coverage_positions(coverage_file, output_dir, sample_name)
+
+            # Flagstat for on-target read metrics
+            flagstat_file = os.path.join(output_dir, f"{sample_name}_flagstat.txt")
+            flagstat_command = f"samtools flagstat {analysis_bam} > {flagstat_file}"
+            stdout, stderr = run_command(flagstat_command)
+            logging.info(f"Flagstat output saved to {flagstat_file}")
 
             # ivar consensus with parameters from config
             pileup_command = (
-                f"samtools mpileup -d {cons['mpileup_max_depth']} "
+                f"samtools mpileup -aa -A -d {cons['mpileup_max_depth']} "
                 f"-Q {cons['mpileup_min_base_quality']} "
                 f"-q {cons['mpileup_min_mapping_quality']} "
                 f"{analysis_bam} | "
@@ -289,7 +447,7 @@ def main(argv=None):
                 f"-q {cons['ivar_min_quality']} "
                 f"-t {cons['ivar_min_frequency']} "
                 f"-m {cons['ivar_min_depth']} "
-                f"-n {cons['ivar_ambiguous_char']}"
+                # -n omitted: default is N
             )
             stdout, stderr = run_command(pileup_command)
             logging.info(f"Consensus command output: {stdout}")
@@ -304,14 +462,20 @@ def main(argv=None):
             filtered_vcf = filter_vcf(raw_vcf, reference_fasta, sample_name, output_dir, config)
 
             # Annotate filtered variants
-            annotated_vcf, summary_html, summary_csv, summary_txt = run_snpeff_annotation(
-                filtered_vcf, sample_name, output_dir, config, database_name)
-            snpsift_output = run_snpsift_extract(annotated_vcf, sample_name, output_dir)
+            if args.annotation_mode == 'config':
+                from virus_pipeline.annotate_from_config import annotate_from_config
+                annotation_tsv = annotate_from_config(
+                    filtered_vcf, reference_fasta, config, sample_name, output_dir)
+                logging.info(f"Config-based annotation complete for {sample_name}")
+            else:
+                annotated_vcf, summary_html, summary_csv, summary_txt = run_snpeff_annotation(
+                    filtered_vcf, sample_name, output_dir, config, database_name)
+                annotation_tsv = create_annotation_tsv(annotated_vcf, sample_name, output_dir, config)
             logging.info(
                 f"Processing complete for {sample_name}: "
                 f"consensus={os.path.join(output_dir, consensus_fasta)}, "
                 f"coverage={coverage_file}, filtered_vcf={filtered_vcf}, "
-                f"annotated_vcf={annotated_vcf}"
+                f"annotation_tsv={annotation_tsv}"
             )
         except Exception as e:
             print(f"Error occurred during processing {sample_name}: {str(e)}")

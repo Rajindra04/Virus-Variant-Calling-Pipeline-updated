@@ -8,13 +8,27 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+def load_transcript_map(config_path):
+    """Load transcript-to-protein mapping from config YAML if available."""
+    if not config_path:
+        return {}
+    try:
+        import yaml
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+        return config.get('transcript_annotations', {})
+    except Exception as e:
+        logging.warning(f"Could not load transcript map from {config_path}: {e}")
+        return {}
+
 def main(argv=None):
     if argv is None:
         argv = sys.argv[1:]
-    
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_dir', type=str, required=True, help='Path to input directory containing SnpEff summary files.')
     parser.add_argument('--output_dir', type=str, required=True, help='Path to output directory for summary files.')
+    parser.add_argument('--config', type=str, default=None, help='Path to virus config YAML (for transcript annotations)')
     args = parser.parse_args(argv)
 
     input_dir = args.input_dir
@@ -23,8 +37,11 @@ def main(argv=None):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
+    # Load transcript-to-protein mapping
+    transcript_map = load_transcript_map(args.config)
+
     # File pattern
-    file_pattern = "*_snpEff_genes.txt"
+    file_pattern = "*_snpEff_summary.genes.txt"
 
     # Expected columns to keep
     columns_to_keep = [
@@ -38,17 +55,6 @@ def main(argv=None):
         "variants_effect_missense_variant",
         "variants_effect_splice_region_variant",
         "variants_effect_synonymous_variant"
-    ]
-
-    # Full column list for files with headers
-    full_columns = [
-        "GeneName", "GeneId", "TranscriptId", "BioType",
-        "variants_impact_HIGH", "variants_impact_LOW", "variants_impact_MODERATE", "variants_impact_MODIFIER",
-        "variants_effect_conservative_inframe_deletion",
-        "variants_effect_disruptive_inframe_insertion",
-        "variants_effect_downstream_gene_variant", "variants_effect_frameshift_variant",
-        "variants_effect_missense_variant", "variants_effect_splice_region_variant",
-        "variants_effect_stop_gained", "variants_effect_synonymous_variant", "variants_effect_upstream_gene_variant"
     ]
 
     # Initialize data list
@@ -68,64 +74,32 @@ def main(argv=None):
 
     # Iterate over files
     for file_path in files:
-        sample_name = os.path.basename(file_path).replace("_snpEff_genes.txt", "")
+        sample_name = os.path.basename(file_path).replace("_snpEff_summary.genes.txt", "")
         logging.info(f"Processing file: {file_path} (Sample: {sample_name})")
-        
+
         try:
-            # Read first few lines for debugging
-            with open(file_path, 'r') as f:
-                logging.debug(f"First 3 lines of {file_path}:")
-                lines = []
-                for i in range(3):
-                    try:
-                        line = next(f).strip()
-                        lines.append(line)
-                        logging.debug(f"Line {i+1}: {line}")
-                        fields = line.split("\t")
-                        logging.debug(f"Fields in line {i+1}: {len(fields)} (Expected: 13, 14, or 15)")
-                        if i > 0 and len(fields) not in [13, 14, 15]:
-                            logging.warning(f"Incorrect field count in line {i+1}")
-                    except StopIteration:
-                        break
-            
-            # Try reading with tab delimiter
-            try:
-                df = pd.read_csv(file_path, sep="\t", comment="#", header=1)
-            except Exception as e:
-                logging.warning(f"Tab delimiter failed: {str(e)}. Trying comma delimiter...")
-                try:
-                    df = pd.read_csv(file_path, sep=",", comment="#", header=1)
-                except Exception as e:
-                    logging.error(f"Comma delimiter failed: {str(e)}. Skipping file.")
-                    continue
-            
-            logging.info(f"Columns in {file_path}: {list(df.columns)}")
-            
-            if len(df.columns) not in [13, 14, 15]:
-                logging.error(f"Column count mismatch in {file_path}. Expected 13, 14, or 15, found {len(df.columns)}")
+            # Read with tab delimiter; line 0 is a comment, line 1 is the header
+            df = pd.read_csv(file_path, sep="\t", header=1)
+
+            # Clean column names (strip whitespace, handle leading #)
+            df.columns = [c.strip().lstrip('#') for c in df.columns]
+
+            logging.info(f"Columns found in {file_path}: {list(df.columns)} ({len(df.columns)} columns)")
+
+            # Select only the columns we want that actually exist
+            available_cols = [col for col in columns_to_keep if col in df.columns]
+
+            if not available_cols:
+                logging.error(f"No expected columns found in {file_path}. Skipping.")
                 continue
-            
-            expected_cols = set(full_columns)
-            actual_cols = set(df.columns)
-            if not any(col in actual_cols for col in columns_to_keep):
-                logging.error(f"No expected columns found in {file_path}. Attempting manual column assignment.")
-                if len(df.columns) in [13, 14, 15]:
-                    logging.info(f"Assigning columns: {full_columns[:len(df.columns)]}")
-                    df.columns = full_columns[:len(df.columns)]
-                else:
-                    continue
-            
+
+            df = df[available_cols].copy()
+
+            # Fill missing expected columns with 0
             for col in columns_to_keep:
                 if col not in df.columns:
-                    logging.warning(f"Column {col} missing in {file_path}. Filling with zeros.")
                     df[col] = 0
-            
-            missing_cols = [col for col in columns_to_keep if col not in df.columns]
-            if missing_cols:
-                logging.error(f"Missing columns in {file_path}: {missing_cols}")
-                continue
-            
-            df = df[columns_to_keep].copy()
+
             df["Sample"] = sample_name
             all_data.append(df)
         except Exception as e:
@@ -164,8 +138,25 @@ def main(argv=None):
         "Samples"
     ]
 
+    # Add Protein column from transcript mapping
+    if transcript_map:
+        summary_df.insert(1, "Protein", summary_df["TranscriptId"].map(transcript_map).fillna(""))
+    else:
+        summary_df.insert(1, "Protein", "")
+
     output_file = os.path.join(output_dir, "summary_table.csv")
     summary_df.to_csv(output_file, index=False)
+
+    # Frameshift QC warning
+    if 'Total_variants_effect_frameshift_variant' in summary_df.columns:
+        frameshift_total = summary_df['Total_variants_effect_frameshift_variant'].sum()
+        if frameshift_total > 0:
+            logging.warning(
+                "QC ALERT: %d frameshift variant(s) detected. "
+                "For single-polyprotein viruses, frameshifts may indicate "
+                "alignment artifacts or assembly errors. Review the annotations TSV.",
+                int(frameshift_total)
+            )
     logging.info(f"Summary table saved to {output_file}")
 
     chart_data = {

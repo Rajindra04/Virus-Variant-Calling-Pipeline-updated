@@ -1,113 +1,154 @@
-# =============================================================================
-# Dengue Virus Serotype 1 (DENV-1) Configuration
-# =============================================================================
-#
-# This config file defines ALL virus-specific and analysis parameters for the
-# Virus Variant Calling Pipeline. To adapt this pipeline for a different virus,
-# copy this file, rename it (e.g., sars-cov-2.yaml), and adjust the values.
-#
-# Key questions to research when adapting for a new virus:
-#   1. What is the ploidy? (haploid for most RNA viruses)
-#   2. What is the expected genome size?
-#   3. What reference genome and annotation should be used?
-#   4. Were amplicon primers used? (if so, provide a BED file)
-#   5. What coverage depth is adequate for your analysis goals?
-#
-# =============================================================================
+virus_name: "dengue virus type 1"
+genome_type: "ssRNA(+)"
+ploidy: 1
+expected_genome_size: 10735
+database_name: "NC_001477.1"
 
-# ---------------------------------------------------------------------------
-# Virus identity
-# ---------------------------------------------------------------------------
-virus_name: "Dengue virus serotype 1"
-genome_type: "ssRNA(+)"       # Single-stranded positive-sense RNA
-ploidy: 1                     # Haploid -- most RNA viruses are haploid
-expected_genome_size: 10735   # bp (approximate)
-
-# ---------------------------------------------------------------------------
-# Reference files  (override on command line with --reference_fasta / --genbank_file)
-# ---------------------------------------------------------------------------
-database_name: "denv1"        # Name used for the SnpEff database
-
-# ---------------------------------------------------------------------------
-# Read trimming -- fastp
-# ---------------------------------------------------------------------------
 fastp:
-  qualified_quality_phred: 20    # Minimum Phred quality to keep a base
-  length_required: 50            # Discard reads shorter than this after trimming
-  cut_front: true                # Sliding-window trim from 5' end
-  cut_tail: true                 # Sliding-window trim from 3' end
-  cut_window_size: 4             # Sliding-window width (bases)
-  cut_mean_quality: 20           # Minimum mean quality inside the window
-  detect_adapter_for_pe: true    # Auto-detect adapters for paired-end reads
-  correction: true               # Enable overlap-based error correction
-  overlap_len_require: 30        # Minimum overlap length for correction
+  qualified_quality_phred: 20
+  length_required: 50
+  cut_front: true
+  cut_tail: true
+  cut_window_size: 4
+  cut_mean_quality: 20
+  detect_adapter_for_pe: true
+  correction: true
+  overlap_len_require: 30
   threads: 4
 
-# ---------------------------------------------------------------------------
-# Alignment filtering -- samtools view
-# ---------------------------------------------------------------------------
 alignment_filtering:
-  min_mapping_quality: 20        # -q  : discard reads with MAPQ < this
-  exclude_flags: "0x904"         # -F  : unmapped (0x4) + secondary (0x100) + supplementary (0x800)
+  min_mapping_quality: 20
+  exclude_flags: "0x904"
 
-# ---------------------------------------------------------------------------
-# Duplicate removal -- samtools fixmate + markdup
-# ---------------------------------------------------------------------------
 deduplication:
-  enabled: true                  # Set to false to skip duplicate removal
-  remove_duplicates: true        # -r flag: remove (not just mark) duplicates
+  enabled: true
+  remove_duplicates: true
 
-# ---------------------------------------------------------------------------
-# Primer trimming -- ivar trim
-# ---------------------------------------------------------------------------
-# Provide --primer_bed on the command line to enable.
-# If no BED file is given, this step is skipped and logged in provenance.
 primer_trimming:
-  min_quality: 20                # -q : quality threshold for sliding window
-  min_length: 30                 # -m : minimum read length after trimming
-  sliding_window: 4              # -s : sliding window width
-  include_reads_no_primer: true  # -e : include reads without primer sequence
+  min_quality: 20
+  min_length: 50
+  sliding_window: 4
+  include_reads_no_primer: true
 
-# ---------------------------------------------------------------------------
-# Coverage calculation -- samtools depth
-# ---------------------------------------------------------------------------
 coverage:
-  min_base_quality: 20           # -q : minimum base quality
-  min_mapping_quality: 20        # -Q : minimum mapping quality
+  min_base_quality: 20
+  min_mapping_quality: 20
 
-# ---------------------------------------------------------------------------
-# Consensus generation -- samtools mpileup | ivar consensus
-# ---------------------------------------------------------------------------
 consensus:
-  mpileup_max_depth: 10000       # -d : maximum read depth per position
-  mpileup_min_base_quality: 20   # -Q : minimum base quality for mpileup
-  mpileup_min_mapping_quality: 20  # -q : minimum mapping quality for mpileup
-  ivar_min_quality: 20           # -q : minimum quality score for consensus
-  ivar_min_frequency: 0.5        # -t : frequency threshold (0.5 = majority rule)
-  ivar_min_depth: 10             # -m : minimum depth to call consensus
-  ivar_ambiguous_char: "N"       # -n : character for ambiguous/low-depth positions
+  mpileup_max_depth: 10000
+  mpileup_min_base_quality: 0
+  mpileup_min_mapping_quality: 0
+  ivar_min_quality: 20
+  ivar_min_frequency: 0.5
+  ivar_min_depth: 20
+  ivar_ambiguous_char: "N"
 
-# ---------------------------------------------------------------------------
-# Variant calling -- GATK HaplotypeCaller
-# ---------------------------------------------------------------------------
 variant_calling:
-  ploidy: 1                      # Must match the ploidy field above
-  standard_min_confidence: 30    # --standard-min-confidence-threshold-for-calling
-  min_base_quality_score: 20     # --min-base-quality-score
+  ploidy: 1
+  standard_min_confidence: 30
+  min_base_quality_score: 20
 
-# ---------------------------------------------------------------------------
-# VCF filtering -- GATK VariantFiltration + SelectVariants
-# ---------------------------------------------------------------------------
 vcf_filtering:
   filters:
-    LowQD:       "QD < 2.0"       # Quality-by-depth
-    StrandBias:  "FS > 60.0"      # Fisher strand bias
-    LowMQ:       "MQ < 40.0"      # Mapping quality
-    LowDepth:    "DP < 10"        # Read depth
-  select_pass_only: true           # Keep only PASS variants for annotation
+    LowQD: "QD < 2.0"
+    StrandBias: "FS > 60.0"
+    LowMQ: "MQ < 40.0"
+    LowDepth: "DP < 20"
+  select_pass_only: true
 
-# ---------------------------------------------------------------------------
-# Variant annotation -- snpEff
-# ---------------------------------------------------------------------------
 annotation:
-  snpeff_memory: "4g"              # -Xmx value
+  snpeff_memory: "4g"
+
+transcript_annotations:
+  "DV1_gp1": "Polyprotein"
+  "NP_722457.2": "ancC"
+  "NP_722466.2": "Capsid"
+  "NP_733807.2": "prM"
+  "YP_009164956.1": "pr"
+  "NP_722459.2": "M"
+  "NP_722460.2": "E"
+  "NP_722461.1": "NS1"
+  "NP_733808.1": "NS2A"
+  "NP_733809.1": "NS2B"
+  "NP_722463.1": "NS3"
+  "NP_733810.1": "NS4A"
+  "NP_722467.1": "2K"
+  "NP_733811.1": "NS4B"
+  "NP_722465.1": "NS5"
+
+gene_coordinates:
+  Polyprotein:
+    start: 95
+    end: 10273
+    feature_id: "DV1_gp1"
+    feature_type: "CDS"
+  ancC:
+    start: 95
+    end: 436
+    feature_id: "NP_722457.2"
+    feature_type: "mat_peptide"
+  Capsid:
+    start: 95
+    end: 394
+    feature_id: "NP_722466.2"
+    feature_type: "mat_peptide"
+  prM:
+    start: 437
+    end: 934
+    feature_id: "NP_733807.2"
+    feature_type: "mat_peptide"
+  pr:
+    start: 437
+    end: 709
+    feature_id: "YP_009164956.1"
+    feature_type: "mat_peptide"
+  M:
+    start: 710
+    end: 934
+    feature_id: "NP_722459.2"
+    feature_type: "mat_peptide"
+  E:
+    start: 935
+    end: 2419
+    feature_id: "NP_722460.2"
+    feature_type: "mat_peptide"
+  NS1:
+    start: 2420
+    end: 3475
+    feature_id: "NP_722461.1"
+    feature_type: "mat_peptide"
+  NS2A:
+    start: 3476
+    end: 4129
+    feature_id: "NP_733808.1"
+    feature_type: "mat_peptide"
+  NS2B:
+    start: 4130
+    end: 4519
+    feature_id: "NP_733809.1"
+    feature_type: "mat_peptide"
+  NS3:
+    start: 4520
+    end: 6376
+    feature_id: "NP_722463.1"
+    feature_type: "mat_peptide"
+  NS4A:
+    start: 6377
+    end: 6757
+    feature_id: "NP_733810.1"
+    feature_type: "mat_peptide"
+  2K:
+    start: 6758
+    end: 6826
+    feature_id: "NP_722467.1"
+    feature_type: "mat_peptide"
+  NS4B:
+    start: 6827
+    end: 7573
+    feature_id: "NP_733811.1"
+    feature_type: "mat_peptide"
+  NS5:
+    start: 7574
+    end: 10270
+    feature_id: "NP_722465.1"
+    feature_type: "mat_peptide"

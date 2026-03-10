@@ -78,6 +78,10 @@ def main(argv=None):
             sort_command = f"samtools sort -T {os.path.join(output_dir, f'temp_{sample_name}')} -o {sorted_bam_file} {fixmate_bam}"
             run_command(sort_command)
 
+            # Count pre-dedup reads
+            pre_dedup_stdout, _ = run_command(f"samtools view -c {sorted_bam_file}")
+            pre_dedup_count = int(pre_dedup_stdout.strip())
+
             # Mark and remove duplicates
             dedup_bam = os.path.join(output_dir, f"{sample_name}.dedup.bam")
             markdup_flags = "-r -s" if dedup['remove_duplicates'] else "-s"
@@ -85,6 +89,22 @@ def main(argv=None):
             run_command(markdup_command)
             os.rename(dedup_bam, sorted_bam_file)
             validate_bam(sorted_bam_file)
+
+            # Count post-dedup reads
+            post_dedup_stdout, _ = run_command(f"samtools view -c {sorted_bam_file}")
+            post_dedup_count = int(post_dedup_stdout.strip())
+            duplicates_removed = pre_dedup_count - post_dedup_count
+            pct_duplicates = round(duplicates_removed / pre_dedup_count * 100, 2) if pre_dedup_count > 0 else 0
+            logging.info(f"Deduplication: {pre_dedup_count} -> {post_dedup_count} reads "
+                         f"({duplicates_removed} duplicates removed, {pct_duplicates}%)")
+
+            # Write dedup stats file
+            dedup_stats_file = os.path.join(output_dir, f"{sample_name}_dedup_stats.txt")
+            with open(dedup_stats_file, 'w') as ds:
+                ds.write(f"pre_dedup_reads\t{pre_dedup_count}\n")
+                ds.write(f"post_dedup_reads\t{post_dedup_count}\n")
+                ds.write(f"duplicates_removed\t{duplicates_removed}\n")
+                ds.write(f"pct_duplicates\t{pct_duplicates}\n")
 
             # Clean up intermediate files
             for tmp in [bam_file, fixmate_bam]:

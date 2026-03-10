@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# BWA/samtools index files (generated locally)
+*.0123
+*.bwt.2bit.64
+*.pac
+*.amb
+*.ann
+*.fai
+*.dict
+
+# Raw data
+fastq/
+*.fastq.gz
+
+# Session planning notes
+CLAUDE_UNE_PLAN_*.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Conda build artifacts
+conda-recipe/*.tar.bz2

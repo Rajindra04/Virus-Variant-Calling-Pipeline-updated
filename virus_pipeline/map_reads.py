@@ -1,4 +1,5 @@
 import sys
+import json
 import argparse
 import pandas as pd
 import subprocess
@@ -27,6 +28,63 @@ def samplesheet_verify(samplesheet):
     except Exception as e:
         raise ValueError(f"Error reading sample sheet: {e}")
     return samples
+
+
+def check_qc_gate(fastp_json, sample_name, base_dir):
+    """Parse fastp JSON and enforce QC thresholds.
+
+    Returns:
+        str: "PASS", "WARN", or "FAIL"
+    """
+    qc_fail_log = os.path.join(base_dir, "qc_fail_log.txt")
+    qc_warn_log = os.path.join(base_dir, "qc_warn_log.txt")
+
+    with open(fastp_json, "r") as f:
+        data = json.load(f)
+
+    after = data["summary"]["after_filtering"]
+    q30_rate = after["q30_rate"]
+    total_reads = after["total_reads"]
+
+    # Duplication rate is at top level in fastp JSON
+    duplication_rate = data.get("duplication", {}).get("rate", 0.0)
+
+    status = "PASS"
+    reasons = []
+
+    # FAIL conditions
+    if q30_rate < 0.70:
+        reasons.append(f"Q30 rate {q30_rate:.3f} < 0.70")
+        status = "FAIL"
+    if total_reads < 10000:
+        reasons.append(f"Total reads {total_reads} < 10000")
+        status = "FAIL"
+
+    # WARN conditions (only if not already FAIL)
+    if status != "FAIL":
+        if q30_rate < 0.80:
+            reasons.append(f"Q30 rate {q30_rate:.3f} < 0.80")
+            status = "WARN"
+        if duplication_rate > 0.80:
+            reasons.append(f"Duplication rate {duplication_rate:.3f} > 0.80")
+            status = "WARN"
+
+    # Log results
+    if status == "FAIL":
+        with open(qc_fail_log, "a") as f:
+            f.write(f"{sample_name}\tFAIL\t{'; '.join(reasons)}\t"
+                    f"q30={q30_rate:.3f}\treads={total_reads}\tdup={duplication_rate:.3f}\n")
+        logging.error(f"QC FAIL for {sample_name}: {'; '.join(reasons)}")
+    elif status == "WARN":
+        with open(qc_warn_log, "a") as f:
+            f.write(f"{sample_name}\tWARN\t{'; '.join(reasons)}\t"
+                    f"q30={q30_rate:.3f}\treads={total_reads}\tdup={duplication_rate:.3f}\n")
+        logging.warning(f"QC WARN for {sample_name}: {'; '.join(reasons)}")
+    else:
+        logging.info(f"QC PASS for {sample_name}: q30={q30_rate:.3f}, reads={total_reads}, dup={duplication_rate:.3f}")
+
+    return status
+
 
 def main(argv=None):
     if argv is None:
@@ -93,6 +151,12 @@ def main(argv=None):
         stdout, stderr = run_command(fastp_command)
         logging.info(stdout)
         logging.info(stderr)
+
+        # QC Gate: check fastp results before proceeding
+        qc_status = check_qc_gate(fastp_json, sample_name, base_dir)
+        if qc_status == "FAIL":
+            logging.error(f"Skipping sample {sample_name} due to QC failure")
+            continue
 
         # FastQC
         fastqc_command = (

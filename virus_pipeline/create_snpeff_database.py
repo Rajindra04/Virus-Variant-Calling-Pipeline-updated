@@ -78,7 +78,7 @@ def prepare_files(genbank_file, reference_fasta, output_dir, database_name):
 def build_snpeff_database(database_name, config_file, output_dir):
     data_dir = os.path.abspath(os.path.join(output_dir, "data"))
     build_command = (
-        f"snpEff build -genbank -v {database_name} "
+        f"snpEff build -genbank -v {database_name} -noCheckCds -noCheckProtein "
         f"-c {config_file} "
         f"-dataDir {data_dir}"
     )
