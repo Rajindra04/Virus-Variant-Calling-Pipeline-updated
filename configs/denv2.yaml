@@ -75,3 +75,80 @@ transcript_annotations:
   "NP_739593.2": "2K"
   "NP_739589.2": "NS4B"
   "NP_739590.2": "NS5"
+
+gene_coordinates:
+  Polyprotein:
+    start: 97
+    end: 10272
+    feature_id: "DENV_gp1"
+    feature_type: "CDS"
+  ancC:
+    start: 97
+    end: 438
+    feature_id: "NP_739581.2"
+    feature_type: "mat_peptide"
+  capsid:
+    start: 97
+    end: 396
+    feature_id: "NP_739591.2"
+    feature_type: "mat_peptide"
+  prM:
+    start: 439
+    end: 936
+    feature_id: "NP_739582.2"
+    feature_type: "mat_peptide"
+  pr:
+    start: 439
+    end: 711
+    feature_id: "YP_009164954.1"
+    feature_type: "mat_peptide"
+  M:
+    start: 712
+    end: 936
+    feature_id: "NP_739592.2"
+    feature_type: "mat_peptide"
+  E:
+    start: 937
+    end: 2421
+    feature_id: "NP_739583.2"
+    feature_type: "mat_peptide"
+  NS1:
+    start: 2422
+    end: 3477
+    feature_id: "NP_739584.2"
+    feature_type: "mat_peptide"
+  NS2A:
+    start: 3478
+    end: 4131
+    feature_id: "NP_739585.2"
+    feature_type: "mat_peptide"
+  NS2B:
+    start: 4132
+    end: 4521
+    feature_id: "NP_739586.2"
+    feature_type: "mat_peptide"
+  NS3:
+    start: 4522
+    end: 6375
+    feature_id: "NP_739587.2"
+    feature_type: "mat_peptide"
+  NS4A:
+    start: 6376
+    end: 6756
+    feature_id: "NP_739588.2"
+    feature_type: "mat_peptide"
+  2K:
+    start: 6757
+    end: 6825
+    feature_id: "NP_739593.2"
+    feature_type: "mat_peptide"
+  NS4B:
+    start: 6826
+    end: 7569
+    feature_id: "NP_739589.2"
+    feature_type: "mat_peptide"
+  NS5:
+    start: 7570
+    end: 10269
+    feature_id: "NP_739590.2"
+    feature_type: "mat_peptide"

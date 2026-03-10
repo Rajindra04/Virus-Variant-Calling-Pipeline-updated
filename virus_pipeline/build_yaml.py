@@ -8,7 +8,9 @@ def parse_config_tsv(filepath):
     """Parse the [GENERAL] and [TRANSCRIPT_ANNOTATIONS] sections from a TSV."""
     general = {}
     annotations = {}  # feature_id -> protein_name
+    gene_coords = []  # list of dicts with full annotation info
     current_section = None
+    ann_header = None
 
     with open(filepath) as f:
         for line in f:
@@ -35,14 +37,28 @@ def parse_config_tsv(filepath):
 
             elif current_section == "annotations":
                 if parts[0] == "feature_id":
+                    ann_header = parts
                     continue
                 if len(parts) >= 2:
                     annotations[parts[0]] = parts[1]
+                    # Also capture full row for gene_coordinates
+                    if ann_header:
+                        row = dict(zip(ann_header, parts))
+                        location = row.get("location", "")
+                        if ".." in location:
+                            start_str, end_str = location.split("..")
+                            gene_coords.append({
+                                "feature_id": row.get("feature_id", ""),
+                                "protein_name": row.get("protein_name", ""),
+                                "feature_type": row.get("feature_type", ""),
+                                "start": int(start_str),
+                                "end": int(end_str),
+                            })
 
-    return general, annotations
+    return general, annotations, gene_coords
 
 
-def build_yaml(general, annotations):
+def build_yaml(general, annotations, gene_coords=None):
     """Generate YAML config string matching the pipeline's expected structure."""
     virus_name = general.get("virus_name", "unknown")
     genome_type = general.get("genome_type", "ssRNA(+)")
@@ -126,6 +142,17 @@ def build_yaml(general, annotations):
     for feat_id, prot_name in annotations.items():
         lines.append(f'  "{feat_id}": "{prot_name}"')
 
+    if gene_coords:
+        lines.append("")
+        lines.append("gene_coordinates:")
+        for gc in gene_coords:
+            pname = gc["protein_name"]
+            lines.append(f"  {pname}:")
+            lines.append(f"    start: {gc['start']}")
+            lines.append(f"    end: {gc['end']}")
+            lines.append(f'    feature_id: "{gc["feature_id"]}"')
+            lines.append(f'    feature_type: "{gc["feature_type"]}"')
+
     return "\n".join(lines) + "\n"
 
 
@@ -135,13 +162,13 @@ def main():
     parser.add_argument("--output", required=True, help="Output YAML config file")
     args = parser.parse_args()
 
-    general, annotations = parse_config_tsv(args.tsv)
+    general, annotations, gene_coords = parse_config_tsv(args.tsv)
 
     if not general.get("database_name"):
         print("ERROR: No database_name found in TSV", file=sys.stderr)
         sys.exit(1)
 
-    yaml_content = build_yaml(general, annotations)
+    yaml_content = build_yaml(general, annotations, gene_coords)
 
     with open(args.output, "w") as f:
         f.write(yaml_content)
