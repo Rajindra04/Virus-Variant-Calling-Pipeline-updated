@@ -25,7 +25,6 @@ from .create_samplesheet import main as create_samplesheet
 from .map_reads import main as map_reads
 from .samtobamdenv import main as samtobamdenv
 from .create_snpeff_database import main as create_snpeff_database
-from .sam2consensus_test2_ivar import main as sam2consensus_test2_ivar
 from .variant_calling_consensus import main as variant_calling_consensus
 from .summarize_result import main as summarize_result
 from .summarize_snpEff import main as summarize_snpEff

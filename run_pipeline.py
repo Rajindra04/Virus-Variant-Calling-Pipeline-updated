@@ -11,7 +11,6 @@ from virus_pipeline import (
     map_reads,
     samtobamdenv,
     create_snpeff_database,
-    sam2consensus_test2_ivar,
     variant_calling_consensus,
     summarize_result,
     summarize_snpEff,
@@ -195,23 +194,6 @@ def main():
         logging.info("Skipping snpEff database creation (annotation_mode=config)")
         tracker.record_step("Build SnpEff database", "snpEff", {},
                            status="skipped", notes="Using config-based annotation")
-
-    try:
-        logging.info("Starting sam2consensus_test2_ivar")
-        sam2consensus_test2_ivar(['--input_dir', args.output_dir,
-                                  '--reference_fasta', args.reference_fasta,
-                                  '--output_dir', args.output_dir])
-        tracker.record_step("Legacy ivar consensus (pre-existing step)", "ivar", {
-            'note': 'This is the original sam2consensus_test2_ivar module',
-        })
-        logging.info("Completed sam2consensus_test2_ivar")
-    except Exception as e:
-        tracker.record_step("Legacy ivar consensus", "ivar",
-                           {}, status="failed", notes=str(e))
-        logging.error(f"Failed in sam2consensus_test2_ivar: {e}")
-        tracker.write_json()
-        tracker.write_report()
-        sys.exit(1)
 
     # Build variant_calling_consensus args
     vcc_args = [
