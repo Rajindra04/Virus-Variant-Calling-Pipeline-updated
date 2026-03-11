@@ -1,0 +1,11 @@
+CHROM	POS	REF	ALT	Pass1_AF	Pass2_AF	Pass1_Effect	Gene	Classification
+NC_001474.2	582	A	G	1.00	0.00	synonymous_variant	capsid	FIXED_SHARED
+NC_001474.2	1203	C	T	1.00	0.00	missense_variant	prM	FIXED_SHARED
+NC_001474.2	1890	T	C	1.00	0.00	synonymous_variant	E	FIXED_SHARED
+NC_001474.2	2871	A	G	1.00	0.00	missense_variant	NS1	FIXED_UNIQUE
+NC_001474.2	4102	G	A	1.00	0.00	synonymous_variant	NS2B	FIXED_SHARED
+NC_001474.2	5244	C	T	0.97	0.03	missense_variant	NS3	MIXED
+NC_001474.2	6501	T	A	1.00	0.00	synonymous_variant	NS4A	FIXED_SHARED
+NC_001474.2	7890	A	G	1.00	0.00	missense_variant	NS5	FIXED_SHARED
+NC_001474.2	8733	G	T	0.85	0.15	synonymous_variant	NS5	INTRAHOST
+NC_001474.2	9456	C	A	1.00	0.00	missense_variant	NS5	FIXED_SHARED

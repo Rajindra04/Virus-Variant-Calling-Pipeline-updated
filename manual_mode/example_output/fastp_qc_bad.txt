@@ -1,0 +1,39 @@
+# ══════════════════════════════════════════════
+# fastp QC — BAD SAMPLE (FAIL)
+# ══════════════════════════════════════════════
+# Source: Simulated low-quality run
+#
+# This is what a FAILING sample looks like.
+# DO NOT proceed with this data.
+
+Before filtering:
+  Total reads:     312,456
+  Total bases:     46,868,400
+  Q20 rate:        72.1%
+  Q30 rate:        54.3%         # Already very low
+
+After filtering:
+  Total reads:     178,230       # Only 57.0% survived ✗ (<70%)
+  Total bases:     22,108,520
+  Q20 rate:        85.4%
+  Q30 rate:        68.2%         # Q30 <70% ✗
+
+Filtering result:
+  Reads passed:    178,230
+  Reads failed:    134,226       # 43% of reads discarded!
+  Reads corrected: 3,210
+
+Adapter trimming:
+  Adapter-trimmed: 45,678 (14.6%)  # High adapter contamination ✗
+
+# VERDICT: ✗ FAIL
+#
+# Possible causes:
+#   • Degraded RNA/DNA sample
+#   • Library prep failure
+#   • Sequencing run quality issues
+#   • Wrong library loaded
+#
+# Action: Do NOT proceed. Request re-sequencing if possible.
+# If re-sequencing is not possible, note the low quality in
+# your manuscript and consider excluding this sample.

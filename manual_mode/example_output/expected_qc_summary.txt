@@ -1,0 +1,65 @@
+# ══════════════════════════════════════════════════════════════
+# Expected QC Summary — Good Sample
+# ══════════════════════════════════════════════════════════════
+# This is what all QC checkpoints should look like for a
+# well-sequenced sample processed correctly.
+
+═══════════════════════════════════════════════════════════════
+  Manual Mode Setup — DENV2
+═══════════════════════════════════════════════════════════════
+
+  ✓ PASS: Conda environment 'dengue_pipeline' active
+  ✓ PASS: bwa-mem2 found
+  ✓ PASS: samtools found
+  ✓ PASS: fastp found
+  ✓ PASS: All reference files present
+
+╔══════════════════════════════════════════════╗
+║  QC CHECKPOINT: fastp QC                     ║
+╚══════════════════════════════════════════════╝
+  ℹ INFO: Reads before filtering: 524832
+  ℹ INFO: Reads after filtering:  498210
+  ℹ INFO: Surviving: 95.0%
+  ℹ INFO: Q30 rate:  93.5%
+  ✓ PASS: Survival rate 95.0% ≥ 80%
+  ✓ PASS: Q30 rate 93.5% ≥ 85%
+
+╔══════════════════════════════════════════════╗
+║  QC CHECKPOINT: Mapping QC                   ║
+╚══════════════════════════════════════════════╝
+  ℹ INFO: Total reads:  498210
+  ℹ INFO: Mapped reads: 487125
+  ℹ INFO: Mapping rate: 97.8%
+  ✓ PASS: Mapping rate 97.8% ≥ 80%
+
+╔══════════════════════════════════════════════╗
+║  QC CHECKPOINT: Deduplication QC             ║
+╚══════════════════════════════════════════════╝
+  ℹ INFO: Total reads examined: 487125
+  ℹ INFO: Duplicates found:     85234
+  ℹ INFO: Duplication rate:     17.5%
+  ✓ PASS: Duplication rate 17.5% < 50%
+
+╔══════════════════════════════════════════════╗
+║  QC CHECKPOINT: Coverage QC                  ║
+╚══════════════════════════════════════════════╝
+  ℹ INFO: Genome size:    10723 bp
+  ℹ INFO: Bases at ≥20x:  10452
+  ℹ INFO: Genome at ≥20x: 97.5%
+  ✓ PASS: Genome coverage 97.5% ≥ 90% at ≥20x
+  ℹ INFO: Consensus length: 10723 bp
+  ℹ INFO: N positions:      271
+  ℹ INFO: N content:        2.5%
+  ✓ PASS: N content 2.5% < 5%
+
+╔══════════════════════════════════════════════╗
+║  QC CHECKPOINT: Variant Count QC             ║
+╚══════════════════════════════════════════════╝
+  ℹ INFO: Variants passing filters: 28
+  ✓ PASS: 28 variants in expected range (5-50)
+
+╔══════════════════════════════════════════════╗
+║  QC CHECKPOINT: Frameshift QC (CRITICAL)     ║
+╚══════════════════════════════════════════════╝
+  ℹ INFO: Frameshift variants found: 0
+  ✓ PASS: 0 frameshifts — consistent with viable single-polyprotein virus

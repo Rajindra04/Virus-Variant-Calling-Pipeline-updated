@@ -4,7 +4,12 @@ This pipeline processes paired-end FASTQ files to perform variant calling and ge
 
 ![Virus Variant Calling Pipeline](docs/pipeline_figure.png)
 
+## Manual Mode Tutorial
+
+**New users start here:** The [Manual Mode Tutorial](manual_mode/TUTORIAL.md) walks you through every pipeline step with QC checkpoints, parameter explanations, and biological context. It teaches you to evaluate whether output is reasonable before publishing results.
+
 ## Table of Contents
+- [Manual Mode Tutorial](#manual-mode-tutorial)
 - [Overview](#overview)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)

@@ -1,0 +1,50 @@
+# ══════════════════════════════════════════════
+# samtools flagstat — ANNOTATED EXAMPLE
+# ══════════════════════════════════════════════
+# Source: SRR35818859 after quality filtering
+#
+# This is the output of: samtools flagstat sample.sorted.bam
+# Each line is annotated with what it means.
+
+498210 + 0 in total (QC-passed reads + QC-failed reads)
+    # ↑ Total reads in the BAM after quality filtering
+
+0 + 0 secondary
+    # ↑ Secondary alignments (reads mapping to multiple locations)
+    #   Should be 0 after -F 256 filter
+
+0 + 0 supplementary
+    # ↑ Supplementary (chimeric) alignments
+    #   Should be 0 after -F 2048 filter
+
+0 + 0 duplicates
+    # ↑ Marked duplicates (0 here = before dedup step)
+
+487125 + 0 mapped (97.78% : N/A)
+    # ↑ THIS IS THE KEY NUMBER
+    #   97.78% mapping rate = EXCELLENT ✓
+    #
+    #   >80% = PASS (good sample, correct reference)
+    #   50-80% = WARN (possible contamination or divergent sample)
+    #   <50% = FAIL (wrong reference? host contamination?)
+
+498210 + 0 paired in sequencing
+    # ↑ All reads are paired (expected for paired-end data)
+
+249105 + 0 read1
+249105 + 0 read2
+    # ↑ Equal R1 and R2 counts = properly paired input
+
+485230 + 0 properly paired (97.40% : N/A)
+    # ↑ Both mates mapped with expected insert size and orientation
+    #   Should be close to the mapping rate
+
+1890 + 0 with itself and mate mapped
+    # ↑ Both mates mapped but not "properly" (unusual insert size)
+
+5 + 0 singletons (0.00% : N/A)
+    # ↑ Only one mate mapped — very low is good
+
+0 + 0 with mate mapped to a different chr
+0 + 0 with mate mapped to a different chr (mapQ>=5)
+    # ↑ Should be 0 for a single-chromosome viral genome

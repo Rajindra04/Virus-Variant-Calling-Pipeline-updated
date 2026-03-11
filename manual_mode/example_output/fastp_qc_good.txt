@@ -1,0 +1,29 @@
+# ══════════════════════════════════════════════
+# fastp QC — GOOD SAMPLE (PASS)
+# ══════════════════════════════════════════════
+# Source: SRR35818859 (DENV2)
+#
+# These metrics come from the fastp JSON report.
+# You can also view the HTML report in a browser.
+
+Before filtering:
+  Total reads:     524,832
+  Total bases:     78,724,800
+  Q20 rate:        96.8%
+  Q30 rate:        91.2%
+
+After filtering:
+  Total reads:     498,210       # 95.0% survived ✓ (>80%)
+  Total bases:     73,891,500
+  Q20 rate:        98.1%
+  Q30 rate:        93.5%         # Q30 >85% ✓
+
+Filtering result:
+  Reads passed:    498,210
+  Reads failed:    26,622
+  Reads corrected: 12,445        # Overlap correction
+
+Adapter trimming:
+  Adapter-trimmed: 8,234 (1.6%)  # Low adapter contamination ✓
+
+# VERDICT: ✓ PASS — proceed to mapping
