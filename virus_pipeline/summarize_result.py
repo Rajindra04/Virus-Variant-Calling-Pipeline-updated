@@ -299,8 +299,8 @@ def main(argv=None):
         argv = sys.argv[1:]
     
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_dir', type=str, help='Path to input directory containing coverage and FASTA files.')
-    parser.add_argument('--output_dir', type=str, help='Path to output directory for summarized information.')
+    parser.add_argument('--input_dir', type=str, required=True, help='Path to input directory containing coverage and FASTA files.')
+    parser.add_argument('--output_dir', type=str, required=True, help='Path to output directory for summarized information.')
     parser.add_argument('--database_name', type=str, default='denv1', help='Name of the SnpEff database (default: denv1).')
     args = parser.parse_args(argv)
 

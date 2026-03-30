@@ -15,9 +15,9 @@ requirements:
     - pip
   run:
     - python =3.11
-    - pandas >=2.2.2
-    - numpy==3.2.2
-    - matplotlib >=3.8.4
+    - pandas >=2.3.0
+    - numpy >=2.3.1
+    - matplotlib >=3.10.3
     - pyyaml>=6.0.2
     - bwa-mem2 >=2.2.1
     - samtools >=1.20

@@ -91,9 +91,9 @@ def main(argv=None):
         argv = sys.argv[1:]
     
     parser = argparse.ArgumentParser()
-    parser.add_argument("--genbank_file", type=str, help="Path to GenBank (.gb or .gbk) file.")
-    parser.add_argument("--reference_fasta", type=str, help="Path to reference FASTA file.")
-    parser.add_argument("--output_dir", type=str, help="Path to output directory for SnpEff database.")
+    parser.add_argument("--genbank_file", type=str, required=True, help="Path to GenBank (.gb or .gbk) file.")
+    parser.add_argument("--reference_fasta", type=str, required=True, help="Path to reference FASTA file.")
+    parser.add_argument("--output_dir", type=str, required=True, help="Path to output directory for SnpEff database.")
     parser.add_argument("--database_name", type=str, default="denv1", help="Name of the SnpEff database (default: denv1).")
     parser.add_argument("--skip_id_validation", action="store_true", help="Skip validation of sequence ID matching.")
     args = parser.parse_args(argv)

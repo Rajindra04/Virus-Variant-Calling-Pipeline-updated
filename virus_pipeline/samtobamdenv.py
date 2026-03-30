@@ -30,9 +30,9 @@ def main(argv=None):
         argv = sys.argv[1:]
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_dir', type=str, help='Path to input directory containing SAM files.')
-    parser.add_argument('--reference_fasta', type=str, help='Path to reference FASTA file.')
-    parser.add_argument('--output_dir', type=str, help='Path to output directory for BAM files.')
+    parser.add_argument('--input_dir', type=str, required=True, help='Path to input directory containing SAM files.')
+    parser.add_argument('--reference_fasta', type=str, required=True, help='Path to reference FASTA file.')
+    parser.add_argument('--output_dir', type=str, required=True, help='Path to output directory for BAM files.')
     parser.add_argument('--config', type=str, required=True, help='Path to virus config YAML file')
     args = parser.parse_args(argv)
 

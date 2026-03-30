@@ -10,7 +10,7 @@ setup(
     name='virus_variant_calling_pipeline',
     version='1.0.0',
     author='Rajindra Napit',
-    author_email='rajindra@d4@gmail.com',
+    author_email='rajindra04@gmail.com',
     description='Pipeline for dengue virus variant calling and annotation',
     long_description=long_description,
     long_description_content_type='text/markdown',

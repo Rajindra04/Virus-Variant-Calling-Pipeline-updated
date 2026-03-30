@@ -91,8 +91,8 @@ def main(argv=None):
         argv = sys.argv[1:]
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--samplesheet', type=str, help='Path to sample sheet with columns "sample_name", "read1", "read2".')
-    parser.add_argument('--reference', type=str, help='Path to reference FASTA file')
+    parser.add_argument('--samplesheet', type=str, required=True, help='Path to sample sheet with columns "sample_name", "read1", "read2".')
+    parser.add_argument('--reference', type=str, required=True, help='Path to reference FASTA file')
     parser.add_argument('--config', type=str, required=True, help='Path to virus config YAML file')
     args = parser.parse_args(argv)
 
@@ -176,7 +176,7 @@ def main(argv=None):
         logging.info(stderr)
 
         # Move SAM files to sam_files_dir
-        run_command(f"mv {os.path.join(sample_folder, f'{sample_name}*.sam')} {sam_files_dir}")
+        run_command(f"mv {sample_folder}/{sample_name}*.sam {sam_files_dir}")
         logging.info(f"SAM files moved to {sam_files_dir}")
 
 if __name__ == '__main__':

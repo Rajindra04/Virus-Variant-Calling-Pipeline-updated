@@ -70,6 +70,10 @@ def main():
     parser.add_argument('--annotation_mode', type=str, default='snpeff',
                         choices=['snpeff', 'config'],
                         help='Annotation mode: snpeff (default) or config (lightweight, no snpEff)')
+    parser.add_argument('--gatk_memory', type=str, default=None,
+                        help='Max Java heap size for GATK (e.g., 2g, 4g). '
+                             'Overrides the gatk_memory value in the config YAML. '
+                             'Default from config is 4g. Reduce on low-memory systems.')
     args = parser.parse_args()
 
     # Load virus-specific config
@@ -206,6 +210,8 @@ def main():
     ]
     if args.primer_bed:
         vcc_args.extend(['--primer_bed', args.primer_bed])
+    if args.gatk_memory:
+        vcc_args.extend(['--gatk_memory', args.gatk_memory])
 
     try:
         logging.info("Starting variant_calling_consensus")
