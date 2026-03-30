@@ -90,7 +90,7 @@ def prepare_reference(reference_fasta, output_dir):
     dict_file = os.path.splitext(reference_fasta)[0] + ".dict"
     if not os.path.exists(dict_file):
         logging.info("Creating sequence dictionary for reference...")
-        run_command(f"gatk CreateSequenceDictionary -R {reference_fasta} -O {dict_file}")
+        run_command(f"gatk --java-options '-Xmx2g' CreateSequenceDictionary -R {reference_fasta} -O {dict_file}")
 
 def add_read_groups(bam_file, sample_name, output_dir):
     rg_bam = os.path.join(output_dir, f"{sample_name}_rg.bam")
@@ -112,8 +112,9 @@ def run_variant_calling(bam_file, reference_fasta, sample_name, output_dir, conf
     validate_bam(bam_file)
     raw_vcf = os.path.join(output_dir, f"{sample_name}.vcf")
     vc = config['variant_calling']
+    gatk_memory = vc.get('gatk_memory', '4g')
     gatk_command = (
-        f"gatk HaplotypeCaller "
+        f"gatk --java-options '-Xmx{gatk_memory}' HaplotypeCaller "
         f"-R {reference_fasta} "
         f"-I {bam_file} "
         f"-O {raw_vcf} "
@@ -129,6 +130,8 @@ def run_variant_calling(bam_file, reference_fasta, sample_name, output_dir, conf
 def filter_vcf(raw_vcf, reference_fasta, sample_name, output_dir, config):
     """Filter VCF for quality, depth, and strand bias."""
     vf = config['vcf_filtering']
+    vc = config['variant_calling']
+    gatk_memory = vc.get('gatk_memory', '4g')
     filtered_vcf = os.path.join(output_dir, f"{sample_name}_filtered.vcf")
 
     # Build filter expressions from config
@@ -137,7 +140,7 @@ def filter_vcf(raw_vcf, reference_fasta, sample_name, output_dir, config):
         filter_parts.append(f"--filter-expression '{expression}' --filter-name '{filter_name}'")
 
     filter_command = (
-        f"gatk VariantFiltration "
+        f"gatk --java-options '-Xmx{gatk_memory}' VariantFiltration "
         f"-R {reference_fasta} "
         f"-V {raw_vcf} "
         f"{' '.join(filter_parts)} "
@@ -149,7 +152,7 @@ def filter_vcf(raw_vcf, reference_fasta, sample_name, output_dir, config):
     pass_vcf = os.path.join(output_dir, f"{sample_name}_pass.vcf")
     if vf['select_pass_only']:
         select_command = (
-            f"gatk SelectVariants "
+            f"gatk --java-options '-Xmx{gatk_memory}' SelectVariants "
             f"-R {reference_fasta} "
             f"-V {filtered_vcf} "
             f"--exclude-filtered "
