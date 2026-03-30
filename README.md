@@ -10,6 +10,7 @@ This pipeline processes paired-end FASTQ files to perform variant calling and ge
 - [Installation](#installation)
 - [Usage](#usage)
 - [Directory Structure](#directory-structure)
+- [Memory Requirements](#memory-requirements)
 - [Troubleshooting](#troubleshooting)
 - [License](#license)
 - [Contact](#contact)
@@ -87,6 +88,7 @@ The pipeline performs the following steps:
    - `--primer_bed primers/your_primers.bed` — BED file with primer coordinates for ivar trim. If omitted, primer trimming is skipped.
    - `--sample_names "Sample1,Sample2"` — Comma-delimited custom sample names (must match the number of FASTQ pairs).
    - `--annotation_mode config` — Use lightweight config-based annotation instead of snpEff (does not require a GenBank file).
+   - `--gatk_memory 2g` — Max Java heap size for GATK (default: 4g). Reduce on low-memory systems (see [Memory Requirements](#memory-requirements) below).
 
    **Example for DENV2**:
    ```bash
@@ -158,6 +160,44 @@ Virus-Variant-Calling-Pipeline-updated/
 │   └── meta.yaml
 └── run_pipeline.py           # Main pipeline entry point
 ```
+
+## Memory Requirements
+
+GATK HaplotypeCaller is the most memory-intensive step. By default it is capped at **4 GB** of Java heap. If GATK appears to hang (common on virtual machines with limited RAM), your system may not have enough memory.
+
+**Check available memory:**
+```bash
+# Linux
+free -h
+
+# macOS
+sysctl hw.memsize | awk '{print $2/1024/1024/1024 " GB"}'
+```
+
+**Recommended minimum:** 8 GB total system RAM with the default 4g GATK setting. If your system has 4 GB or less, reduce GATK memory:
+
+```bash
+# Default (4 GB heap) — use if your system has 8+ GB RAM:
+run_pipeline \
+  --input_dir fastq/ \
+  --reference_fasta references/NC_001477.1.fasta \
+  --genbank_file NC_001477.1.gb \
+  --output_dir output/ \
+  --config configs/denv1.yaml
+
+# Reduced memory (2 GB heap) — use if your system has 4-6 GB RAM:
+run_pipeline \
+  --input_dir fastq/ \
+  --reference_fasta references/NC_001477.1.fasta \
+  --genbank_file NC_001477.1.gb \
+  --output_dir output/ \
+  --config configs/denv1.yaml \
+  --gatk_memory 2g
+```
+
+You can also set this permanently in your config YAML under `variant_calling.gatk_memory`.
+
+**For VirtualBox/VM users:** Ensure your VM is allocated at least 8 GB of RAM in the VM settings. The default of 2-4 GB is not enough for GATK.
 
 ## Troubleshooting
 

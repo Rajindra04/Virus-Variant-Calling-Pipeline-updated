@@ -380,9 +380,15 @@ def main(argv=None):
     parser.add_argument('--annotation_mode', type=str, default='snpeff',
                         choices=['snpeff', 'config'],
                         help='Annotation mode: snpeff (default) or config (lightweight)')
+    parser.add_argument('--gatk_memory', type=str, default=None,
+                        help='Max Java heap size for GATK (e.g., 2g, 4g). '
+                             'Overrides the gatk_memory value in the config YAML.')
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
+    # CLI --gatk_memory overrides config value
+    if args.gatk_memory:
+        config.setdefault('variant_calling', {})['gatk_memory'] = args.gatk_memory
     cov = config['coverage']
     cons = config['consensus']
 
