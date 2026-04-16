@@ -57,7 +57,7 @@ PASS_VCF="${OUTPUT_DIR}/${SAMPLE}_pass.vcf"
 #            heterozygous calls that don't exist in viruses.
 #       HOW TO CHANGE: Never change for single-stranded RNA viruses.
 #
-#   --standard-min-confidence-call 30
+#   --standard-min-confidence-threshold-for-calling 30
 #       WHAT: Minimum phred-scaled confidence to emit a variant.
 #       DEFAULT: 30 means 99.9% confidence the variant is real.
 #       HOW TO CHANGE: Lower to 20 for exploratory analysis;
@@ -72,14 +72,16 @@ echo "  This may take 5-15 minutes..."
 echo ""
 
 GATK_MEMORY="${GATK_MEMORY:-4g}"
+GATK_LOG="${OUTPUT_DIR}/${SAMPLE}_haplotypecaller.log"
 gatk --java-options "-Xmx${GATK_MEMORY}" HaplotypeCaller \
     -R "$REFERENCE_FASTA" \
     -I "$ANALYSIS_BAM" \
     -O "$RAW_VCF" \
     -ploidy 1 \
-    --standard-min-confidence-call 30 \
+    --standard-min-confidence-threshold-for-calling 30 \
     --min-base-quality-score 20 \
-    2>&1 | grep -E "^(INFO|WARN)" | tail -5
+    2>"$GATK_LOG" || { cat "$GATK_LOG" >&2; exit 1; }
+grep -E "^(INFO|WARN)" "$GATK_LOG" | tail -5 || true
 
 # ─── STEP 2: Apply variant filters ────────────────────────────
 # PARAMETERS (hard filters from config YAML):
