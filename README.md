@@ -38,6 +38,17 @@ The pipeline performs the following steps:
   - Paired-end FASTQ files (e.g., `fastq/D1-1_S1_L001_R1_001.fastq.gz`, `fastq/D1-1_S1_L001_R2_001.fastq.gz`).
   - Reference FASTA file (e.g., `references/NC_001477.1.fasta`).
   - GenBank file for SnpEff (e.g., `NC_001477.1.gb`, downloadable from NCBI).
+1. Java Version Requirements
+Current Manual Likely Says: "Ensure Java is installed."
+Corrected Instruction:
+
+"This pipeline requires two different versions of Java. GATK typically requires Java 8 or 17 (depending on your version), while the latest SnpEff may require Java 21.
+You must provide the paths to these specific Java binaries using the following flags:
+
+--gatk_java: Path to the Java executable for GATK.
+
+--snpeff_java: Path to the Java executable for SnpEff."
+
 
 ## Installation
 
@@ -104,6 +115,29 @@ The pipeline performs the following steps:
      --output_dir output_denv2/ \
      --config configs/denv2.yaml
    ```
+   3. Optional Primer Trimming
+Current Manual Likely Says: "Provide a primer BED file for trimming."
+Corrected Instruction:
+
+"Primer trimming is now optional.
+
+If you provide a valid BED file via --primer_bed, the pipeline will perform ivar trim.
+
+If you omit the flag or the file path is incorrect, the pipeline will automatically skip trimming and proceed with the standard BAM files. This is useful for metagenomic samples or libraries not prepared via amplicon sequencing."
+
+Example of an Updated Command
+The manual should include an updated execution example to show these new features in action:
+
+Bash
+python main.py \
+  --input_dir ./reads \
+  --reference_fasta ref.fasta \
+  --genbank_file ref.gbk \
+  --config configs/denv1.yaml \
+  --output_dir ./results \
+  --gatk_java /usr/lib/jvm/java-17-openjdk/bin/java \
+  --snpeff_java /usr/lib/jvm/java-21-openjdk/bin/java \
+  --primer_bed primers.bed  # Omit this line to skip trimming
 
 3. **Output Files** (see `virus_pipeline/OUTPUT_DOCUMENTATION.md` for full details):
    - `output/samplesheet.tsv`: Sample sheet with FASTQ file paths.
