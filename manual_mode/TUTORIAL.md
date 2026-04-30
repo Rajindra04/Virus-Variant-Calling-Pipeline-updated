@@ -91,6 +91,19 @@ Edit the `SEROTYPE` variable at the top (or `export SEROTYPE=denv2` before runni
 export SEROTYPE=denv1
 bash 00_setup.sh
 ```
+Run first. Sets environment variables, creates directories, checks tools, and defines Java paths.
+
+Edit the top of 00_setup.sh to permanently set your Java paths and memory limits:
+How to set custom paths:
+
+```
+# Example: Pointing to specific installations
+export GATK_JAVA=/usr/lib/jvm/java-8-openjdk/bin/java
+export SNPEFF_JAVA=/usr/lib/jvm/java-11-openjdk/bin/java
+```
+# Then run your scripts as usual
+bash 09_variant_calling.sh SRR35818859
+
 
 ### Module 1: Fetch Data (`01_fetch_data.sh`)
 
