@@ -53,18 +53,18 @@ You must provide the paths to these specific Java binaries using the following f
 ## Installation
 
 1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/mihinduk/Virus-Variant-Calling-Pipeline-updated.git
-   cd Virus-Variant-Calling-Pipeline-updated
-   ```
+```bash
+git clone https://github.com/Rajindra04/Virus-Variant-Calling-Pipeline-updated.git
+cd Virus-Variant-Calling-Pipeline-updated
+```
 
 2. **Set Up Conda Environment**:
    Create the `dengue_pipeline` environment using the provided `environment.yml`:
    ```bash
-   conda env create -f environment.yml
-   conda activate dengue_pipeline
-   pip install -r requirements.txt
-   pip install .
+    conda env create -f environment.yml
+    conda activate dengue_pipeline
+    pip install -r requirements.txt
+    pip install .
    ```
    If pip is not available, install it first:
    ```bash
@@ -72,13 +72,53 @@ You must provide the paths to these specific Java binaries using the following f
    ```
 
 3. **Verify Tools**:
+   Java Version Setup ⚠️ IMPORTANT
+This pipeline requires Java for GATK and SnpEff. By default, conda provides a compatible Java version (11+).
+
+For most users: The conda environment Java will work fine. Verify it:
+
+```bash
+java -version  # Should show version 11 or higher
+```
+If you need different Java versions for GATK and SnpEff:
+
+GATK typically requires Java 11-17, while SnpEff works with Java 11+. If you encounter version conflicts, install multiple Java versions:
+
+On Ubuntu/Debian:
+
+```bash
+sudo apt-get install openjdk-11-jdk openjdk-17-jdk
+```
+# Verify both are installed
+```update-alternatives --list java
+```
+On macOS (with Homebrew):
+
+```bash
+brew install openjdk@11 openjdk@17
+# Find paths
+ls /usr/local/opt/openjdk@11/bin/java
+ls /usr/local/opt/openjdk@17/bin/java
+```
+Then run the pipeline with custom Java paths:
+
+```bash
+run_pipeline \
+  --input_dir fastq/ \
+  --reference_fasta references/NC_001477.1.fasta \
+  --genbank_file NC_001477.1.gb \
+  --output_dir output/ \
+  --config configs/denv1.yaml \
+  --gatk_java /usr/lib/jvm/java-17-openjdk/bin/java \
+  --snpeff_java /usr/lib/jvm/java-11-openjdk/bin/java
+```
    Ensure all required tools are installed:
    ```bash
    which bwa-mem2 samtools fastp fastqc gatk snpeff snpsift ivar bcftools
    python --version  # Should output Python 3.11.x
-   ```
+  ```
 
-4. **Download GenBank File (if not provided)**:
+5. **Download GenBank File (if not provided)**:
    The repository includes GenBank files for DENV1-3. To download additional ones:
    ```bash
    wget -O NC_001477.1.gb "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nucleotide&id=NC_001477.1&rettype=gb&retmode=text"
