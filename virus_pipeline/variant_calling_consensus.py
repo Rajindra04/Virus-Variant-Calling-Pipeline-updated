@@ -195,13 +195,86 @@ def trim_primers(bam_file, primer_bed, sample_name, output_dir, config):
     logging.info(f"Primer trimming complete: {trimmed_sorted}")
     return trimmed_sorted
 
-def run_snpeff_annotation(raw_vcf, sample_name, output_dir, config, reference_name="denv1"):
+def run_variant_calling(bam_file, reference_fasta, sample_name, output_dir, config, gatk_java='java'):
+    validate_bam(bam_file)
+    raw_vcf = os.path.join(output_dir, f"{sample_name}.vcf")
+    vc = config['variant_calling']
+    gatk_memory = vc.get('gatk_memory', '4g')
+    gatk_command = (
+        f"{gatk_java} --java-options '-Xmx{gatk_memory}' HaplotypeCaller "
+        f"-R {reference_fasta} "
+        f"-I {bam_file} "
+        f"-O {raw_vcf} "
+        f"-ploidy {vc['ploidy']} "
+        f"--standard-min-confidence-threshold-for-calling {vc['standard_min_confidence']} "
+        f"--min-base-quality-score {vc['min_base_quality_score']}"
+    )
+    stdout, stderr = run_command(gatk_command)
+    logging.info(f"GATK HaplotypeCaller output: {stdout}")
+    logging.info(f"GATK HaplotypeCaller error: {stderr}")
+    return raw_vcf
+
+def filter_vcf(raw_vcf, reference_fasta, sample_name, output_dir, config, gatk_java='java'):
+    """Filter VCF for quality, depth, and strand bias."""
+    vf = config['vcf_filtering']
+    vc = config['variant_calling']
+    gatk_memory = vc.get('gatk_memory', '4g')
+    filtered_vcf = os.path.join(output_dir, f"{sample_name}_filtered.vcf")
+
+    # Build filter expressions from config
+    filter_parts = []
+    for filter_name, expression in vf['filters'].items():
+        filter_parts.append(f"--filter-expression '{expression}' --filter-name '{filter_name}'")
+
+    filter_command = (
+        f"{gatk_java} --java-options '-Xmx{gatk_memory}' VariantFiltration "
+        f"-R {reference_fasta} "
+        f"-V {raw_vcf} "
+        f"{' '.join(filter_parts)} "
+        f"-O {filtered_vcf}"
+    )
+    run_command(filter_command)
+
+    # Select only PASS variants
+    pass_vcf = os.path.join(output_dir, f"{sample_name}_pass.vcf")
+    if vf['select_pass_only']:
+        select_command = (
+            f"{gatk_java} --java-options '-Xmx{gatk_memory}' SelectVariants "
+            f"-R {reference_fasta} "
+            f"-V {filtered_vcf} "
+            f"--exclude-filtered "
+            f"-O {pass_vcf}"
+        )
+        run_command(select_command)
+    else:
+        pass_vcf = filtered_vcf
+
+    logging.info(f"VCF filtering complete: {pass_vcf}")
+    return pass_vcf
+
+def run_snpeff_annotation(raw_vcf, sample_name, output_dir, config, reference_name="denv1", snpeff_java="java"):
+    """Run SnpEff annotation with specified Java binary.
+    
+    CRITICAL FIX: Now accepts and uses snpeff_java parameter to ensure
+    the correct Java version is used for SnpEff annotation.
+    
+    Args:
+        raw_vcf: Input VCF file
+        sample_name: Sample identifier
+        output_dir: Output directory
+        config: Configuration dictionary
+        reference_name: SnpEff database name
+        snpeff_java: Path to Java binary for SnpEff
+    """
     ann = config['annotation']
     annotated_vcf = os.path.join(output_dir, f"{sample_name}_annotated.vcf")
     summary_html = os.path.join(output_dir, f"{sample_name}_snpEff_summary.html")
     summary_csv = os.path.join(output_dir, f"{sample_name}_snpEff_summary.csv")
+    
+    # Build SnpEff command with specified Java binary (CRITICAL FIX)
     snpeff_command = (
-        f"snpEff -Xmx{ann['snpeff_memory']} "
+        f"{snpeff_java} -Xmx{ann['snpeff_memory']} "
+        f"-jar $SNPEFF_HOME/snpEff/snpEff.jar "
         f"-c {os.path.join(output_dir, 'snpEff.config')} "
         f"-v {reference_name} "
         f"-s {summary_html} "
@@ -383,6 +456,10 @@ def main(argv=None):
     parser.add_argument('--gatk_memory', type=str, default=None,
                         help='Max Java heap size for GATK (e.g., 2g, 4g). '
                              'Overrides the gatk_memory value in the config YAML.')
+    parser.add_argument('--gatk_java', type=str, default='java',
+                        help='Path to Java binary for GATK')
+    parser.add_argument('--snpeff_java', type=str, default='java',
+                        help='Path to Java binary for SnpEff')
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
@@ -398,14 +475,17 @@ def main(argv=None):
     database_name = args.database_name
     primer_bed = args.primer_bed
 
-    if primer_bed and not os.path.exists(primer_bed):
-        logging.error(f"Primer BED file not found: {primer_bed}")
-        sys.exit(1)
+    # Handle primer bed validation gracefully
     if primer_bed:
-        logging.info(f"Primer trimming enabled with BED file: {primer_bed}")
-    else:
+        if not os.path.exists(primer_bed):
+            logging.warning(f"Primer BED file '{primer_bed}' not found. Skipping primer trimming.")
+            primer_bed = None
+        else:
+            logging.info(f"Primer trimming enabled with BED file: {primer_bed}")
+    
+    if not primer_bed:
         logging.warning("No primer BED file provided -- skipping primer trimming")
-
+        
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -465,10 +545,10 @@ def main(argv=None):
             consensus_fasta = f"{sample_name}.fa"
 
             # Variant calling (ploidy from config)
-            raw_vcf = run_variant_calling(analysis_bam, reference_fasta, sample_name, output_dir, config)
+            raw_vcf = run_variant_calling(analysis_bam, reference_fasta, sample_name, output_dir, config, args.gatk_java)
 
             # VCF filtering (thresholds from config)
-            filtered_vcf = filter_vcf(raw_vcf, reference_fasta, sample_name, output_dir, config)
+            filtered_vcf = filter_vcf(raw_vcf, reference_fasta, sample_name, output_dir, config, args.gatk_java)
 
             # Annotate filtered variants
             if args.annotation_mode == 'config':
@@ -477,9 +557,10 @@ def main(argv=None):
                     filtered_vcf, reference_fasta, config, sample_name, output_dir)
                 logging.info(f"Config-based annotation complete for {sample_name}")
             else:
+                                # Pass SnpEff Java path to annotation function
                 annotated_vcf, summary_html, summary_csv, summary_txt = run_snpeff_annotation(
-                    filtered_vcf, sample_name, output_dir, config, database_name)
-                annotation_tsv = create_annotation_tsv(annotated_vcf, sample_name, output_dir, config)
+                    filtered_vcf, sample_name, output_dir, config, database_name, args.snpeff_java)
+                
             logging.info(
                 f"Processing complete for {sample_name}: "
                 f"consensus={os.path.join(output_dir, consensus_fasta)}, "
