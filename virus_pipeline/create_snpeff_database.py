@@ -75,13 +75,43 @@ def prepare_files(genbank_file, reference_fasta, output_dir, database_name):
         raise FileNotFoundError(f"GenBank file not found at {genbank_dest}")
     logging.info(f"Files prepared: {fasta_dest}, {genbank_dest}")
 
-def build_snpeff_database(database_name, config_file, output_dir):
+def build_snpeff_database(database_name, config_file, output_dir, java_path):
     data_dir = os.path.abspath(os.path.join(output_dir, "data"))
+    
+    # 1. Dynamically locate the JAR using the active Python environment prefix
+    # In Conda, this is usually: envs/dengue_pipeline/share/snpeff/snpEff.jar
+    conda_prefix = sys.prefix
+    potential_jar = os.path.join(conda_prefix, "share", "snpeff", "snpEff.jar")
+    
+    # Fallback search if the versioned folder is used (e.g., snpeff-5.2-0)
+    if not os.path.exists(potential_jar):
+        share_dir = os.path.join(conda_prefix, "share")
+        if os.path.exists(share_dir):
+            for folder in os.listdir(share_dir):
+                if folder.startswith("snpeff"):
+                    test_path = os.path.join(share_dir, folder, "snpEff.jar")
+                    if os.path.exists(test_path):
+                        potential_jar = test_path
+                        break
+
+    # 2. Verify we actually found it
+    if not os.path.exists(potential_jar):
+        logging.error(f"Could not find snpEff.jar at {potential_jar}")
+        # Last ditch effort: check if it's in the current directory
+        if os.path.exists("snpEff.jar"):
+            potential_jar = "snpEff.jar"
+        else:
+            raise FileNotFoundError("snpEff.jar not found in Conda share/ or current directory.")
+
+    # 3. Construct the command using the absolute path to the JAR
+    # Use quotes around the jar path in case there are spaces
     build_command = (
-        f"snpEff build -genbank -v {database_name} -noCheckCds -noCheckProtein "
+        f"{java_path} -Xmx4g -jar '{potential_jar}' build -genbank -v {database_name} "
+        f"-noCheckCds -noCheckProtein "
         f"-c {config_file} "
         f"-dataDir {data_dir}"
     )
+    
     stdout, stderr = run_command(build_command)
     logging.info("SnpEff build output: %s", stdout)
     logging.info("SnpEff build error: %s", stderr)
@@ -94,30 +124,29 @@ def main(argv=None):
     parser.add_argument("--genbank_file", type=str, required=True, help="Path to GenBank (.gb or .gbk) file.")
     parser.add_argument("--reference_fasta", type=str, required=True, help="Path to reference FASTA file.")
     parser.add_argument("--output_dir", type=str, required=True, help="Path to output directory for SnpEff database.")
-    parser.add_argument("--database_name", type=str, default="denv1", help="Name of the SnpEff database (default: denv1).")
+    parser.add_argument("--database_name", type=str, default="denv1", help="Name of the SnpEff database.")
     parser.add_argument("--skip_id_validation", action="store_true", help="Skip validation of sequence ID matching.")
+    
+    # FIX: Added the missing --snpeff_java argument
+    parser.add_argument("--snpeff_java", type=str, default="java", help="Path to specific Java version for SnpEff.")
+    
     args = parser.parse_args(argv)
 
-    genbank_file = args.genbank_file
-    reference_fasta = args.reference_fasta
-    output_dir = args.output_dir
-    database_name = args.database_name
-
-    if not shutil.which('snpeff') and not shutil.which('snpEff'):
-        logging.error("SnpEff not found in PATH")
-        sys.exit(1)
-
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
 
     try:
-        validate_genbank_file(genbank_file)
+        validate_genbank_file(args.genbank_file)
         if not args.skip_id_validation:
-            validate_fasta_genbank_match(genbank_file, reference_fasta)
-        config_file = create_snpeff_config(output_dir, database_name, reference_fasta)
-        prepare_files(genbank_file, reference_fasta, output_dir, database_name)
-        build_snpeff_database(database_name, config_file, output_dir)
-        logging.info(f"SnpEff database '{database_name}' created successfully in {output_dir}")
+            validate_fasta_genbank_match(args.genbank_file, args.reference_fasta)
+            
+        config_file = create_snpeff_config(args.output_dir, args.database_name, args.reference_fasta)
+        prepare_files(args.genbank_file, args.reference_fasta, args.output_dir, args.database_name)
+        
+        # FIX: Pass the java path to the build function
+        build_snpeff_database(args.database_name, config_file, args.output_dir, args.snpeff_java)
+        
+        logging.info(f"SnpEff database '{args.database_name}' created successfully in {args.output_dir}")
     except Exception as e:
         logging.error(f"Error occurred during database creation: {str(e)}")
         sys.exit(1)
