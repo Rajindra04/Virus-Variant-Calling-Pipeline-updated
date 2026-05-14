@@ -87,7 +87,7 @@ GATK typically requires Java 11-17, while SnpEff works with Java 11+. If you enc
 On Ubuntu/Debian:
 
 ```bash
-sudo apt-get install openjdk-11-jdk openjdk-17-jdk
+sudo apt-get install openjdk-11-jdk openjdk-17-jdk openjdk-21-jdk
 ```
 # Verify both are installed
 ```update-alternatives --list java
