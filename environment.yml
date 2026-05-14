@@ -10,15 +10,24 @@ dependencies:
   - matplotlib>=3.10.3
   - pyyaml>=6.0.2
   - openpyxl>=3.1.5
+  
+  # Bioinformatics tools
   - bwa-mem2
   - samtools
   - fastp
   - fastqc
-  - gatk4
-  - snpeff
+  - gatk4=4.5.0.0      # Requires Java 17
+  - snpeff>=5.1        # Can use Java 11-21
   - snpsift
   - ivar
   - bcftools
+  
+  # Java versions for different tools
+  # Note: Multiple Java versions may be needed
+  # GATK4 typically requires Java 11-17
+  # SnpEff 5.1+ can use Java 11+
+  - openjdk>=11        # Base Java (11+)
+  
   - pip:
       - pytz==2025.2
       - tzdata==2025.2
