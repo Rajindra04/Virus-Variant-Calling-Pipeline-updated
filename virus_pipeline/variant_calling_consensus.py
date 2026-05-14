@@ -560,6 +560,7 @@ def main(argv=None):
                                 # Pass SnpEff Java path to annotation function
                 annotated_vcf, summary_html, summary_csv, summary_txt = run_snpeff_annotation(
                     filtered_vcf, sample_name, output_dir, config, database_name, args.snpeff_java)
+                annotation_tsv = create_annotation_tsv(annotated_vcf, sample_name, output_dir, config) 
                 
             logging.info(
                 f"Processing complete for {sample_name}: "
