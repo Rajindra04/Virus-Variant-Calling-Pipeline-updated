@@ -389,7 +389,29 @@ def create_annotation_tsv(annotated_vcf, sample_name, output_dir, config):
     logging.info(f"Annotation TSV written: {out_file}")
     return out_file
 
-
+# -----------------------------
+# Consensus Calling
+# -----------------------------
+def create_consensus(pass_vcf, reference_fasta, sample_name, output_dir, low_cov_file=None):
+    consensus_fasta = os.path.join(output_dir, f"{sample_name}_consensus.fasta")
+    
+    # 1. Index the VCF (required for bcftools consensus)
+    run_command(f"bgzip -c {pass_vcf} > {pass_vcf}.gz")
+    run_command(f"bcftools index {pass_vcf}.gz")
+    
+    # 2. Basic consensus command
+    cmd = f"bcftools consensus -f {reference_fasta} {pass_vcf}.gz > {consensus_fasta}"
+    
+    # 3. Optional: Mask low coverage positions with 'N' if low_cov_file is provided
+    # This requires specific handling or a bed file; for now, we do basic consensus
+    run_command(cmd)
+    
+    # 4. Rename the header inside the FASTA to the sample name
+    sed_cmd = f"sed -i 's/>.*/>{sample_name}/' {consensus_fasta}"
+    run_command(sed_cmd)
+    
+    logging.info(f"Consensus FASTA created: {consensus_fasta}")
+    return consensus_fasta
 # -----------------------------
 # MAIN
 # -----------------------------
@@ -473,6 +495,8 @@ def main(argv=None):
             annotate_from_config(filtered_vcf, args.reference_fasta, config, sample, args.output_dir)
 
         logging.info(f"Sample complete: {sample}")
+        logging.info(f"Generating consensus for {sample}")
+        create_consensus(filtered_vcf, args.reference_fasta, sample, args.output_dir)
 
 
 if __name__ == "__main__":
