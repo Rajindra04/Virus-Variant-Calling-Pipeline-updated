@@ -292,27 +292,44 @@ def create_annotation_tsv(annotated_vcf, sample_name, output_dir, config):
 # -----------------------------
 # FIX 2: Enhanced Consensus Calling
 # -----------------------------
-def create_consensus(pass_vcf, reference_fasta, sample_name, output_dir):
+def create_consensus(pass_vcf, reference_fasta, sample_name, output_dir, min_qual=30):
     consensus_fasta = os.path.join(output_dir, f"{sample_name}_consensus.fasta")
     vcf_gz = pass_vcf + ".gz"
     
-    # Compress and index for bcftools
+    # 1. Compress and index the original VCF
     run_command(f"bgzip -c {pass_vcf} > {vcf_gz}")
     run_command(f"bcftools index -f {vcf_gz}")
     
-    # Run consensus
-    cmd = f"bcftools consensus -f {reference_fasta} {vcf_gz} > {consensus_fasta}"
+    # 2. Create a temporary VCF of low-quality sites to use as a mask
+    # This filters for variants with QUAL less than min_qual
+    low_qual_vcf = os.path.join(output_dir, f"{sample_name}_low_qual.vcf.gz")
+    filter_cmd = f"bcftools filter -e 'QUAL>={min_qual}' -O z -o {low_qual_vcf} {vcf_gz}"
+    run_command(filter_cmd)
+    run_command(f"bcftools index -f {low_qual_vcf}")
+    
+    # 3. Run consensus while applying the low-quality mask
+    # -i 'QUAL>=30' ensures we only apply good variants
+    # --mask applies 'N' (or 'n') to the low-quality sites we extracted
+    cmd = (
+        f"bcftools consensus -f {reference_fasta} "
+        f"-i 'QUAL>={min_qual}' "
+        f"--mask {low_qual_vcf} "
+        f"--mask-with n "
+        f"{vcf_gz} > {consensus_fasta}"
+    )
     run_command(cmd)
     
     # Update FASTA header to Sample Name
     run_command(f"sed -i 's/>.*/>{sample_name}/' {consensus_fasta}")
     
-    # Cleanup temp index files
-    if os.path.exists(vcf_gz): os.remove(vcf_gz)
-    if os.path.exists(vcf_gz + ".csi"): os.remove(vcf_gz + ".csi")
-    if os.path.exists(vcf_gz + ".tbi"): os.remove(vcf_gz + ".tbi")
+    # Cleanup temp index and mask files
+    for ext in ["", ".csi", ".tbi"]:
+        f1 = vcf_gz + ext
+        f2 = low_qual_vcf + ext
+        if os.path.exists(f1): os.remove(f1)
+        if os.path.exists(f2): os.remove(f2)
 
-    logging.info(f"Consensus FASTA created: {consensus_fasta}")
+    logging.info(f"Consensus FASTA created with quality filter (QUAL >= {min_qual}): {consensus_fasta}")
     return consensus_fasta
 
 
