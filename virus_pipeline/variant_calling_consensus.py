@@ -8,8 +8,8 @@ import subprocess
 import logging
 import shutil
 
-# --- FIX 1: Set Non-Interactive Backend for Matplotlib ---
-# This must happen BEFORE importing pyplot to prevent the wl_display error
+# --- FIX: Set Non-Interactive Backend for Matplotlib ---
+# This must happen BEFORE importing pyplot to prevent display errors in headless setups
 import matplotlib
 matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
@@ -81,16 +81,24 @@ def validate_bam(bam_file):
 # Prepare reference
 # -----------------------------
 def prepare_reference(reference_fasta, output_dir, gatk_java):
-    validate_fasta(reference_fasta)
+    # FIX: Ensure reference sequence lives locally in output directory scope to prevent permission crashes
+    local_ref = os.path.join(output_dir, os.path.basename(reference_fasta))
+    if not os.path.exists(local_ref):
+        logging.info(f"Staging reference genome copy locally: {local_ref}")
+        shutil.copy(reference_fasta, local_ref)
 
-    if not os.path.exists(f"{reference_fasta}.fai"):
+    validate_fasta(local_ref)
+
+    if not os.path.exists(f"{local_ref}.fai"):
         logging.info("Indexing FASTA...")
-        run_command(f"samtools faidx {reference_fasta}")
+        run_command(f"samtools faidx {local_ref}")
 
-    dict_file = os.path.splitext(reference_fasta)[0] + ".dict"
+    dict_file = os.path.splitext(local_ref)[0] + ".dict"
     if not os.path.exists(dict_file):
         logging.info("Creating sequence dictionary...")
-        run_command(f"gatk CreateSequenceDictionary -R {reference_fasta} -O {dict_file}")
+        run_command(f"gatk CreateSequenceDictionary -R {local_ref} -O {dict_file}")
+
+    return local_ref
 
 
 # -----------------------------
@@ -258,6 +266,9 @@ def plot_coverage(coverage_file, output_dir, sample_name):
     out_png = os.path.join(output_dir, f"{sample_name}_coverage.png")
     fig.savefig(out_png, dpi=150, bbox_inches="tight")
     plt.close(fig)
+    # FIX: Clear layout processing hooks to block iterative loop memory leaks
+    plt.clf()  
+    plt.cla()
 
 
 # -----------------------------
@@ -280,40 +291,74 @@ def write_low_coverage_positions(coverage_file, output_dir, sample_name, min_dep
 
 
 # -----------------------------
-# Annotation TSV creation (Simplified logic)
+# Annotation TSV creation (Placeholder logic)
 # -----------------------------
 def create_annotation_tsv(annotated_vcf, sample_name, output_dir, config):
     out_file = os.path.join(output_dir, f"{sample_name}_annotations.tsv")
-    # ... (Keeping your existing parsing logic here as it is functional)
-    # Ensure you return out_file at the end
+    # ... (Keeping your existing parsing logic intact)
     return out_file
 
 
 # -----------------------------
-# FIX 2: Enhanced Consensus Calling
+# Depth-Aware Consensus Calling
 # -----------------------------
-def create_consensus(pass_vcf, reference_fasta, sample_name, output_dir, min_qual=30):
+def create_consensus(pass_vcf, reference_fasta, sample_name, output_dir, coverage_file, min_qual=30, min_depth=5):
     consensus_fasta = os.path.join(output_dir, f"{sample_name}_consensus.fasta")
-    vcf_gz = pass_vcf + ".gz"
+    vcf_gz = os.path.join(output_dir, f"{sample_name}_consensus_temp.vcf.gz")
+    low_coverage_mask_bed = os.path.join(output_dir, f"{sample_name}_dropout_mask.bed")
     
-    # 1. Compress and index the original VCF
+    # 1. Generate a BED file of low/zero coverage regions from the samtools depth output
+    logging.info(f"Generating dropout mask for regions with depth < {min_depth}X...")
+    current_chrom = None
+    start_pos = None
+    last_pos = None
+    
+    with open(coverage_file, "r") as fin, open(low_coverage_mask_bed, "w") as fout:
+        for line in fin:
+            chrom, pos, depth = line.strip().split("\t")
+            pos = int(pos)
+            depth = int(depth)
+            
+            if depth < min_depth:
+                # FIX: Check if last_pos is not None BEFORE evaluating additions to avoid NoneType errors
+                if current_chrom == chrom and last_pos is not None and pos == last_pos + 1:
+                    # Continue the current low-coverage block
+                    last_pos = pos
+                else:
+                    # Write the previous block if it exists
+                    if start_pos is not None:
+                        fout.write(f"{current_chrom}\t{start_pos - 1}\t{last_pos}\n")
+                    # Start a new block
+                    current_chrom = chrom
+                    start_pos = pos
+                    last_pos = pos
+            else:
+                # Depth is fine; close and write any active low-coverage block
+                if start_pos is not None:
+                    fout.write(f"{current_chrom}\t{start_pos - 1}\t{last_pos}\n")
+                    start_pos = None
+                    last_pos = None
+                    
+        # Catch the final block if the file ends on a dropout
+        if start_pos is not None:
+            fout.write(f"{current_chrom}\t{start_pos - 1}\t{last_pos}\n")
+
+    # 2. Compress and index the original VCF
     run_command(f"bgzip -c {pass_vcf} > {vcf_gz}")
     run_command(f"bcftools index -f {vcf_gz}")
     
-    # 2. Create a temporary VCF of low-quality sites to use as a mask
-    # This filters for variants with QUAL less than min_qual
+    # 3. Create a temporary VCF of low-quality sites to use as an additional mask
     low_qual_vcf = os.path.join(output_dir, f"{sample_name}_low_qual.vcf.gz")
     filter_cmd = f"bcftools filter -e 'QUAL>={min_qual}' -O z -o {low_qual_vcf} {vcf_gz}"
     run_command(filter_cmd)
     run_command(f"bcftools index -f {low_qual_vcf}")
     
-    # 3. Run consensus while applying the low-quality mask
-    # -i 'QUAL>=30' ensures we only apply good variants
-    # --mask applies 'N' (or 'n') to the low-quality sites we extracted
+    # 4. Run consensus while applying BOTH masks
     cmd = (
         f"bcftools consensus -f {reference_fasta} "
         f"-i 'QUAL>={min_qual}' "
         f"--mask {low_qual_vcf} "
+        f"-m {low_coverage_mask_bed} "
         f"--mask-with n "
         f"{vcf_gz} > {consensus_fasta}"
     )
@@ -322,14 +367,15 @@ def create_consensus(pass_vcf, reference_fasta, sample_name, output_dir, min_qua
     # Update FASTA header to Sample Name
     run_command(f"sed -i 's/>.*/>{sample_name}/' {consensus_fasta}")
     
-    # Cleanup temp index and mask files
+    # Cleanup temp index, BED, and mask files
+    if os.path.exists(low_coverage_mask_bed): os.remove(low_coverage_mask_bed)
     for ext in ["", ".csi", ".tbi"]:
         f1 = vcf_gz + ext
         f2 = low_qual_vcf + ext
         if os.path.exists(f1): os.remove(f1)
         if os.path.exists(f2): os.remove(f2)
 
-    logging.info(f"Consensus FASTA created with quality filter (QUAL >= {min_qual}): {consensus_fasta}")
+    logging.info(f"Consensus FASTA created. Quality filtered (QUAL >= {min_qual}) and dropouts masked (Depth < {min_depth}X).")
     return consensus_fasta
 
 
@@ -358,11 +404,18 @@ def main(argv=None):
     if args.gatk_memory:
         config["variant_calling"]["gatk_memory"] = args.gatk_memory
 
-    prepare_reference(args.reference_fasta, args.output_dir, args.gatk_java)
+    # Setup isolated local copy of reference sequence and indices
+    local_reference = prepare_reference(args.reference_fasta, args.output_dir, args.gatk_java)
 
-    bam_files = glob.glob(os.path.join(args.input_dir, "*.bam"))
+    # FIX: Filter out intermediate pipeline BAM outputs to prevent re-trim/header loop crashes
+    all_bams = glob.glob(os.path.join(args.input_dir, "*.bam"))
+    bam_files = [
+        f for f in all_bams 
+        if not any(x in os.path.basename(f) for x in ["_rg", "_trimmed", "_consensus"])
+    ]
+
     if not bam_files:
-        logging.error("No BAM files found")
+        logging.error("No valid raw BAM files discovered inside the input target group.")
         sys.exit(1)
 
     for bam in bam_files:
@@ -384,8 +437,8 @@ def main(argv=None):
         write_low_coverage_positions(cov_file, args.output_dir, sample)
 
         # Step 3: Variant Calling & Filtering
-        raw_vcf = run_variant_calling(analysis_bam, args.reference_fasta, sample, args.output_dir, config, args.gatk_java)
-        filtered_vcf = filter_vcf(raw_vcf, args.reference_fasta, sample, args.output_dir, config, args.gatk_java)
+        raw_vcf = run_variant_calling(analysis_bam, local_reference, sample, args.output_dir, config, args.gatk_java)
+        filtered_vcf = filter_vcf(raw_vcf, local_reference, sample, args.output_dir, config, args.gatk_java)
 
         # Step 4: Annotation
         try:
@@ -394,15 +447,22 @@ def main(argv=None):
                 create_annotation_tsv(ann_vcf, sample, args.output_dir, config)
             else:
                 from virus_pipeline.annotate_from_config import annotate_from_config
-                annotate_from_config(filtered_vcf, args.reference_fasta, config, sample, args.output_dir)
+                annotate_from_config(filtered_vcf, local_reference, config, sample, args.output_dir)
         except Exception as e:
             logging.error(f"Annotation failed for {sample}, but continuing to consensus: {e}")
 
         # Step 5: Consensus Generation
-        # We call this last so it runs even if annotation had a minor warning/issue
-        create_consensus(filtered_vcf, args.reference_fasta, sample, args.output_dir)
-
-        logging.info(f"Finished sample: {sample}")
+        q_threshold = config["variant_calling"].get("min_base_quality_score", 30)
+        
+        create_consensus(
+            pass_vcf=filtered_vcf,            
+            reference_fasta=local_reference, 
+            sample_name=sample, 
+            output_dir=args.output_dir,
+            coverage_file=cov_file,          
+            min_qual=q_threshold,
+            min_depth=5                      
+        )
 
 if __name__ == "__main__":
     main()
