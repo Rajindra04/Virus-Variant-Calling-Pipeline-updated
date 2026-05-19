@@ -112,6 +112,9 @@ def main():
     parser.add_argument('--sample_names', type=str, default=None)
     parser.add_argument('--primer_bed', type=str, default=None)
     
+    # New parameter to configure parallel pipeline execution threads
+    parser.add_argument('--threads', type=int, default=2, help='Number of parallel sample processing threads (default: 2)')
+    
     # These flags are now properly recognized by the parser
     parser.add_argument('--gatk_java', type=str, default='auto', help='Java path for GATK (Java 8)')
     parser.add_argument('--snpeff_java', type=str, default='auto', help='Java path for SnpEff (Java 21/17/11)')
@@ -174,10 +177,21 @@ def main():
         create_samplesheet(ss_args)
 
         logging.info("Step 2: Mapping Reads")
-        map_reads(['--samplesheet', sample_sheet, '--reference', args.reference_fasta, '--config', args.config])
+        map_reads([
+            '--samplesheet', sample_sheet, 
+            '--reference', args.reference_fasta, 
+            '--config', args.config,
+            '--threads', str(args.threads)  # Passed threads value downstream
+        ])
 
         logging.info("Step 3: SAM to BAM conversion")
-        samtobamdenv(['--input_dir', sam_files_dir, '--reference_fasta', args.reference_fasta, '--output_dir', args.output_dir, '--config', args.config])
+        samtobamdenv([
+            '--input_dir', sam_files_dir, 
+            '--reference_fasta', args.reference_fasta, 
+            '--output_dir', args.output_dir, 
+            '--config', args.config,
+            '--threads', str(args.threads)  # Passed threads value downstream
+        ])
 
         if args.annotation_mode == 'snpeff':
             logging.info(f"Step 4: Building SnpEff database with {args.snpeff_java}")
@@ -199,6 +213,7 @@ def main():
             '--annotation_mode', args.annotation_mode,
             '--gatk_java', args.gatk_java,
             '--snpeff_java', args.snpeff_java,
+            '--threads', str(args.threads),  # Passed threads value downstream
         ]
         if args.primer_bed: vcc_args.extend(['--primer_bed', args.primer_bed])
         if args.gatk_memory: vcc_args.extend(['--gatk_memory', args.gatk_memory])
