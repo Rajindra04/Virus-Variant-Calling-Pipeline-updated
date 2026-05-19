@@ -5,10 +5,15 @@ import pandas as pd
 import subprocess
 import os
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from virus_pipeline.config import load_config
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Global lock to prevent threads from writing to the QC log files at the exact same time
+log_lock = threading.Lock()
 
 def run_command(command):
     logging.info(f"Running command: {command}")
@@ -69,53 +74,31 @@ def check_qc_gate(fastp_json, sample_name, base_dir):
             reasons.append(f"Duplication rate {duplication_rate:.3f} > 0.80")
             status = "WARN"
 
-    # Log results
-    if status == "FAIL":
-        with open(qc_fail_log, "a") as f:
-            f.write(f"{sample_name}\tFAIL\t{'; '.join(reasons)}\t"
-                    f"q30={q30_rate:.3f}\treads={total_reads}\tdup={duplication_rate:.3f}\n")
-        logging.error(f"QC FAIL for {sample_name}: {'; '.join(reasons)}")
-    elif status == "WARN":
-        with open(qc_warn_log, "a") as f:
-            f.write(f"{sample_name}\tWARN\t{'; '.join(reasons)}\t"
-                    f"q30={q30_rate:.3f}\treads={total_reads}\tdup={duplication_rate:.3f}\n")
-        logging.warning(f"QC WARN for {sample_name}: {'; '.join(reasons)}")
-    else:
-        logging.info(f"QC PASS for {sample_name}: q30={q30_rate:.3f}, reads={total_reads}, dup={duplication_rate:.3f}")
+    # Log results safely using a thread lock
+    with log_lock:
+        if status == "FAIL":
+            with open(qc_fail_log, "a") as f:
+                f.write(f"{sample_name}\tFAIL\t{'; '.join(reasons)}\t"
+                        f"q30={q30_rate:.3f}\treads={total_reads}\tdup={duplication_rate:.3f}\n")
+            logging.error(f"QC FAIL for {sample_name}: {'; '.join(reasons)}")
+        elif status == "WARN":
+            with open(qc_warn_log, "a") as f:
+                f.write(f"{sample_name}\tWARN\t{'; '.join(reasons)}\t"
+                        f"q30={q30_rate:.3f}\treads={total_reads}\tdup={duplication_rate:.3f}\n")
+            logging.warning(f"QC WARN for {sample_name}: {'; '.join(reasons)}")
+        else:
+            logging.info(f"QC PASS for {sample_name}: q30={q30_rate:.3f}, reads={total_reads}, dup={duplication_rate:.3f}")
 
     return status
 
 
-def main(argv=None):
-    if argv is None:
-        argv = sys.argv[1:]
+def process_sample(row, base_dir, sam_files_dir, reference, fp):
+    """Worker function tasked with processing an individual sample."""
+    sample_name = row['sample_name']
+    read1 = row['read1']
+    read2 = row['read2']
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--samplesheet', type=str, required=True, help='Path to sample sheet with columns "sample_name", "read1", "read2".')
-    parser.add_argument('--reference', type=str, required=True, help='Path to reference FASTA file')
-    parser.add_argument('--config', type=str, required=True, help='Path to virus config YAML file')
-    args = parser.parse_args(argv)
-
-    config = load_config(args.config)
-    fp = config['fastp']
-
-    samples = samplesheet_verify(args.samplesheet)
-    base_dir = os.path.abspath(os.path.dirname(args.samplesheet))
-    sam_files_dir = os.path.join(base_dir, "sam_files")
-    os.makedirs(sam_files_dir, exist_ok=True)
-
-    # Reference indexing with bwa-mem2
-    index_command = f"bwa-mem2 index {args.reference}"
-    logging.info(f"Indexing reference {args.reference}...")
-    stdout, stderr = run_command(index_command)
-    logging.info(stdout)
-    logging.info(stderr)
-
-    for i, row in samples.iterrows():
-        sample_name = row['sample_name']
-        read1 = row['read1']
-        read2 = row['read2']
-
+    try:
         sample_folder = os.path.join(base_dir, f"{sample_name}_output")
         os.makedirs(sample_folder, exist_ok=True)
 
@@ -156,12 +139,10 @@ def main(argv=None):
         qc_status = check_qc_gate(fastp_json, sample_name, base_dir)
         if qc_status == "FAIL":
             logging.error(f"Skipping sample {sample_name} due to QC failure")
-            continue
+            return
 
         # FastQC
-        fastqc_command = (
-            f"fastqc {trimmed_r1} {trimmed_r2} --outdir={sample_folder}"
-        )
+        fastqc_command = f"fastqc {trimmed_r1} {trimmed_r2} --outdir={sample_folder}"
         logging.info(f"Running FastQC for sample {sample_name}...")
         stdout, stderr = run_command(fastqc_command)
         logging.info(stdout)
@@ -169,7 +150,7 @@ def main(argv=None):
 
         # Mapping with bwa-mem2
         sam_file = os.path.join(sample_folder, f"{sample_name}_aln.sam")
-        bwa_command = f"bwa-mem2 mem {args.reference} {trimmed_r1} {trimmed_r2} > {sam_file}"
+        bwa_command = f"bwa-mem2 mem {reference} {trimmed_r1} {trimmed_r2} > {sam_file}"
         logging.info(f"Running bwa-mem2 for sample {sample_name}...")
         stdout, stderr = run_command(bwa_command)
         logging.info(stdout)
@@ -177,7 +158,51 @@ def main(argv=None):
 
         # Move SAM files to sam_files_dir
         run_command(f"mv {sample_folder}/{sample_name}*.sam {sam_files_dir}")
-        logging.info(f"SAM files moved to {sam_files_dir}")
+        logging.info(f"SAM files for {sample_name} moved to {sam_files_dir}")
+        
+    except Exception as e:
+        logging.error(f"Error encountered while processing sample {sample_name}: {e}")
+
+
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--samplesheet', type=str, required=True, help='Path to sample sheet with columns "sample_name", "read1", "read2".')
+    parser.add_argument('--reference', type=str, required=True, help='Path to reference FASTA file')
+    parser.add_argument('--config', type=str, required=True, help='Path to virus config YAML file')
+    parser.add_argument('--threads', type=int, default=2, help='Number of parallel sample processing threads (default: 2)')
+    args = parser.parse_args(argv)
+
+    config = load_config(args.config)
+    fp = config['fastp']
+
+    samples = samplesheet_verify(args.samplesheet)
+    base_dir = os.path.abspath(os.path.dirname(args.samplesheet))
+    sam_files_dir = os.path.join(base_dir, "sam_files")
+    os.makedirs(sam_files_dir, exist_ok=True)
+
+    # Reference indexing with bwa-mem2 (Done once before spinning up sample threads)
+    index_command = f"bwa-mem2 index {args.reference}"
+    logging.info(f"Indexing reference {args.reference}...")
+    stdout, stderr = run_command(index_command)
+    logging.info(stdout)
+    logging.info(stderr)
+
+    # Process samples in parallel using a ThreadPoolExecutor
+    logging.info(f"Starting parallel processing pool with {args.threads} threads...")
+    with ThreadPoolExecutor(max_workers=args.threads) as executor:
+        futures = [
+            executor.submit(process_sample, row, base_dir, sam_files_dir, args.reference, fp) 
+            for _, row in samples.iterrows()
+        ]
+        
+        # This loop forces python to wait for all threads to finish, catching any pool-level errors
+        for future in futures:
+            future.result()
+
+    logging.info("Pipeline run complete.")
 
 if __name__ == '__main__':
     main()
