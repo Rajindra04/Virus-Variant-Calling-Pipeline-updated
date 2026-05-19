@@ -223,6 +223,7 @@ run_pipeline \
   --gatk_java /usr/lib/jvm/java-17-openjdk/bin/java \
 
   --snpeff_java /usr/lib/jvm/java-11-openjdk/bin/java
+  --threads 4
 
 ```
 
