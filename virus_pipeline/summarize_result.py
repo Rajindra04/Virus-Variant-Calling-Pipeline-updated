@@ -263,7 +263,7 @@ def summarize_fasta(input_dir, output_file, database_name):
                     for line in file:
                         if not line.startswith('>'):
                             sequence = line.strip()
-                            n_count += sequence.count('N')
+                            n_count += sequence.count('n')
                             total_base_count += len(sequence)
                 n_counts.append(n_count)
                 total_bases.append(total_base_count)
