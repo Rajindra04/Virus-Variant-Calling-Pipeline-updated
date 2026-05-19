@@ -308,7 +308,7 @@ def create_annotation_tsv(annotated_vcf, sample_name, output_dir, config):
 # -----------------------------
 # Depth-Aware Consensus Calling
 # -----------------------------
-def create_consensus(pass_vcf, reference_fasta, sample_name, output_dir, coverage_file, min_qual=30, min_depth=5):
+def create_consensus(pass_vcf, reference_fasta, sample_name, output_dir, coverage_file, min_qual=30, min_depth=20):
     consensus_fasta = os.path.join(output_dir, f"{sample_name}_consensus.fasta")
     vcf_gz = os.path.join(output_dir, f"{sample_name}_consensus_temp.vcf.gz")
     low_coverage_mask_bed = os.path.join(output_dir, f"{sample_name}_dropout_mask.bed")
