@@ -251,7 +251,7 @@ def summarize_fasta(input_dir, output_file, database_name):
     total_bases = []
 
     for file_name in os.listdir(input_dir):
-        if file_name.endswith('.fa') and not file_name.endswith('.fasta'):
+        if file_name.endswith('.fasta') and not file_name.endswith('.fa'):
             fasta_file = os.path.join(input_dir, file_name)
             sample_name = file_name.replace('.fa', '')
             sample_names.append(sample_name)
