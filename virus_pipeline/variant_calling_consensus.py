@@ -7,6 +7,8 @@ import os
 import subprocess
 import logging
 import shutil
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 # --- FIX: Set Non-Interactive Backend for Matplotlib ---
 # This must happen BEFORE importing pyplot to prevent display errors in headless setups
@@ -17,6 +19,9 @@ import matplotlib.pyplot as plt
 from virus_pipeline.config import load_config
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Global lock to ensure thread-safety when rendering Matplotlib plots
+plot_lock = threading.Lock()
 
 
 # -----------------------------
@@ -252,23 +257,24 @@ def plot_coverage(coverage_file, output_dir, sample_name):
                 positions.append(int(parts[1]))
                 depths.append(int(parts[2]))
 
-    fig, ax = plt.subplots(figsize=(12, 5))
-    ax.fill_between(positions, depths, alpha=0.4, color="steelblue")
-    ax.plot(positions, depths, linewidth=0.5, color="steelblue")
-    ax.axhline(y=20, color="red", linestyle="--", label="20X threshold")
-    ax.set_yscale("log")
-    ax.set_ylim(bottom=0.5)
-    ax.set_xlabel("Genome Position")
-    ax.set_ylabel("Depth (log scale)")
-    ax.set_title(f"Coverage: {sample_name}")
-    ax.legend()
+    # Synchronize layout handling because Matplotlib's active figures engine is stateful
+    with plot_lock:
+        fig, ax = plt.subplots(figsize=(12, 5))
+        ax.fill_between(positions, depths, alpha=0.4, color="steelblue")
+        ax.plot(positions, depths, linewidth=0.5, color="steelblue")
+        ax.axhline(y=20, color="red", linestyle="--", label="20X threshold")
+        ax.set_yscale("log")
+        ax.set_ylim(bottom=0.5)
+        ax.set_xlabel("Genome Position")
+        ax.set_ylabel("Depth (log scale)")
+        ax.set_title(f"Coverage: {sample_name}")
+        ax.legend()
 
-    out_png = os.path.join(output_dir, f"{sample_name}_coverage.png")
-    fig.savefig(out_png, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    # FIX: Clear layout processing hooks to block iterative loop memory leaks
-    plt.clf()  
-    plt.cla()
+        out_png = os.path.join(output_dir, f"{sample_name}_coverage.png")
+        fig.savefig(out_png, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        plt.clf()  
+        plt.cla()
 
 
 # -----------------------------
@@ -307,7 +313,6 @@ def create_consensus(pass_vcf, reference_fasta, sample_name, output_dir, coverag
     vcf_gz = os.path.join(output_dir, f"{sample_name}_consensus_temp.vcf.gz")
     low_coverage_mask_bed = os.path.join(output_dir, f"{sample_name}_dropout_mask.bed")
     
-    # 1. Generate a BED file of low/zero coverage regions from the samtools depth output
     logging.info(f"Generating dropout mask for regions with depth < {min_depth}X...")
     current_chrom = None
     start_pos = None
@@ -320,40 +325,31 @@ def create_consensus(pass_vcf, reference_fasta, sample_name, output_dir, coverag
             depth = int(depth)
             
             if depth < min_depth:
-                # FIX: Check if last_pos is not None BEFORE evaluating additions to avoid NoneType errors
                 if current_chrom == chrom and last_pos is not None and pos == last_pos + 1:
-                    # Continue the current low-coverage block
                     last_pos = pos
                 else:
-                    # Write the previous block if it exists
                     if start_pos is not None:
                         fout.write(f"{current_chrom}\t{start_pos - 1}\t{last_pos}\n")
-                    # Start a new block
                     current_chrom = chrom
                     start_pos = pos
                     last_pos = pos
             else:
-                # Depth is fine; close and write any active low-coverage block
                 if start_pos is not None:
                     fout.write(f"{current_chrom}\t{start_pos - 1}\t{last_pos}\n")
                     start_pos = None
                     last_pos = None
                     
-        # Catch the final block if the file ends on a dropout
         if start_pos is not None:
             fout.write(f"{current_chrom}\t{start_pos - 1}\t{last_pos}\n")
 
-    # 2. Compress and index the original VCF
     run_command(f"bgzip -c {pass_vcf} > {vcf_gz}")
     run_command(f"bcftools index -f {vcf_gz}")
     
-    # 3. Create a temporary VCF of low-quality sites to use as an additional mask
     low_qual_vcf = os.path.join(output_dir, f"{sample_name}_low_qual.vcf.gz")
     filter_cmd = f"bcftools filter -e 'QUAL>={min_qual}' -O z -o {low_qual_vcf} {vcf_gz}"
     run_command(filter_cmd)
     run_command(f"bcftools index -f {low_qual_vcf}")
     
-    # 4. Run consensus while applying BOTH masks
     cmd = (
         f"bcftools consensus -f {reference_fasta} "
         f"-i 'QUAL>={min_qual}' "
@@ -364,10 +360,8 @@ def create_consensus(pass_vcf, reference_fasta, sample_name, output_dir, coverag
     )
     run_command(cmd)
     
-    # Update FASTA header to Sample Name
     run_command(f"sed -i 's/>.*/>{sample_name}/' {consensus_fasta}")
     
-    # Cleanup temp index, BED, and mask files
     if os.path.exists(low_coverage_mask_bed): os.remove(low_coverage_mask_bed)
     for ext in ["", ".csi", ".tbi"]:
         f1 = vcf_gz + ext
@@ -380,48 +374,13 @@ def create_consensus(pass_vcf, reference_fasta, sample_name, output_dir, coverag
 
 
 # -----------------------------
-# MAIN
+# Worker Thread Logic
 # -----------------------------
-def main(argv=None):
-    if argv is None:
-        argv = sys.argv[1:]
+def process_single_bam(bam, args, config, local_reference):
+    sample = os.path.basename(bam).replace(".bam", "")
+    logging.info(f"--- Processing sample: {sample} ---")
 
-    parser = argparse.ArgumentParser(description="Variant calling + consensus module")
-    parser.add_argument("--input_dir", required=True)
-    parser.add_argument("--reference_fasta", required=True)
-    parser.add_argument("--output_dir", required=True)
-    parser.add_argument("--database_name", required=True)
-    parser.add_argument("--config", required=True)
-    parser.add_argument("--primer_bed", default=None)
-    parser.add_argument("--annotation_mode", default="snpeff", choices=["snpeff", "config"])
-    parser.add_argument("--gatk_java", default="java")
-    parser.add_argument("--snpeff_java", default="java")
-    parser.add_argument("--gatk_memory", default=None)
-
-    args = parser.parse_args(argv)
-    config = load_config(args.config)
-
-    if args.gatk_memory:
-        config["variant_calling"]["gatk_memory"] = args.gatk_memory
-
-    # Setup isolated local copy of reference sequence and indices
-    local_reference = prepare_reference(args.reference_fasta, args.output_dir, args.gatk_java)
-
-    # FIX: Filter out intermediate pipeline BAM outputs to prevent re-trim/header loop crashes
-    all_bams = glob.glob(os.path.join(args.input_dir, "*.bam"))
-    bam_files = [
-        f for f in all_bams 
-        if not any(x in os.path.basename(f) for x in ["_rg", "_trimmed", "_consensus"])
-    ]
-
-    if not bam_files:
-        logging.error("No valid raw BAM files discovered inside the input target group.")
-        sys.exit(1)
-
-    for bam in bam_files:
-        sample = os.path.basename(bam).replace(".bam", "")
-        logging.info(f"--- Processing sample: {sample} ---")
-
+    try:
         # Step 1: Pre-processing
         rg_bam = add_read_groups(bam, sample, args.output_dir)
         analysis_bam = rg_bam
@@ -463,6 +422,63 @@ def main(argv=None):
             min_qual=q_threshold,
             min_depth=5                      
         )
+    except Exception as e:
+        logging.error(f"Pipeline crashed while executing steps for sample {sample}: {e}")
+
+
+# -----------------------------
+# MAIN
+# -----------------------------
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+
+    parser = argparse.ArgumentParser(description="Variant calling + consensus module")
+    parser.add_argument("--input_dir", required=True)
+    parser.add_argument("--reference_fasta", required=True)
+    parser.add_argument("--output_dir", required=True)
+    parser.add_argument("--database_name", required=True)
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--primer_bed", default=None)
+    parser.add_argument("--annotation_mode", default="snpeff", choices=["snpeff", "config"])
+    parser.add_argument("--gatk_java", default="java")
+    parser.add_argument("--snpeff_java", default="java")
+    parser.add_argument("--gatk_memory", default=None)
+    parser.add_argument("--threads", type=int, default=2, help="Number of concurrent sample threads (default: 2)")
+
+    args = parser.parse_args(argv)
+    config = load_config(args.config)
+
+    if args.gatk_memory:
+        config["variant_calling"]["gatk_memory"] = args.gatk_memory
+
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+
+    # Setup isolated local copy of reference sequence and indices
+    local_reference = prepare_reference(args.reference_fasta, args.output_dir, args.gatk_java)
+
+    all_bams = glob.glob(os.path.join(args.input_dir, "*.bam"))
+    bam_files = [
+        f for f in all_bams 
+        if not any(x in os.path.basename(f) for x in ["_rg", "_trimmed", "_consensus"])
+    ]
+
+    if not bam_files:
+        logging.error("No valid raw BAM files discovered inside the input target group.")
+        sys.exit(1)
+
+    # Process discovered samples concurrently
+    logging.info(f"Spawning sample processing pool utilizing {args.threads} threads...")
+    with ThreadPoolExecutor(max_workers=args.threads) as executor:
+        futures = [
+            executor.submit(process_single_bam, bam, args, config, local_reference)
+            for bam in bam_files
+        ]
+        for future in futures:
+            future.result()
+
+    logging.info("All samples processed successfully.")
 
 if __name__ == "__main__":
     main()
