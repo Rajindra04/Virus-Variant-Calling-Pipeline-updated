@@ -277,6 +277,7 @@ run_pipeline \
      --output_dir output/ \
 
      --config configs/denv1.yaml
+     --threads 4
 
    ```
 
@@ -309,6 +310,7 @@ run_pipeline \
      --output_dir output_denv2/ \
 
      --config configs/denv2.yaml
+     --threads 4
 
    ```
 
@@ -340,7 +342,7 @@ The manual should include an updated execution example to show these new feature
 
 Bash
 
-python main.py \
+python run_pipeline \
 
   --input_dir ./reads \
 
@@ -357,6 +359,7 @@ python main.py \
   --snpeff_java /usr/lib/jvm/java-21-openjdk/bin/java \
 
   --primer_bed primers.bed  # Omit this line to skip trimming
+  --threads 4 #default threads=2
 
 
 
