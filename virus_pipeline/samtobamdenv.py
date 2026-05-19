@@ -4,6 +4,7 @@ import glob
 import os
 import subprocess
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from virus_pipeline.config import load_config
 
@@ -25,38 +26,12 @@ def validate_bam(bam_file):
     logging.info(f"BAM file {bam_file} validated with {alignments} alignments")
     return alignments > 0
 
-def main(argv=None):
-    if argv is None:
-        argv = sys.argv[1:]
+def process_sam_file(sam_file, output_dir, reference_fasta, af, dedup):
+    """Worker function tasked with processing an individual SAM file."""
+    logging.info(f"Processing: {sam_file}")
+    sample_name = os.path.splitext(os.path.basename(sam_file))[0].replace('_aln', '')
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--input_dir', type=str, required=True, help='Path to input directory containing SAM files.')
-    parser.add_argument('--reference_fasta', type=str, required=True, help='Path to reference FASTA file.')
-    parser.add_argument('--output_dir', type=str, required=True, help='Path to output directory for BAM files.')
-    parser.add_argument('--config', type=str, required=True, help='Path to virus config YAML file')
-    args = parser.parse_args(argv)
-
-    config = load_config(args.config)
-    af = config['alignment_filtering']
-    dedup = config['deduplication']
-
-    input_dir = os.path.abspath(args.input_dir)
-    reference_fasta = os.path.abspath(args.reference_fasta)
-    output_dir = os.path.abspath(args.output_dir)
-
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-
-    sam_files = glob.glob(os.path.join(input_dir, "*_aln.sam"))
-    logging.info(f"Found {len(sam_files)} SAM files in {input_dir}: {sam_files}")
-    if not sam_files:
-        logging.error(f"No SAM files found in {input_dir}")
-        raise FileNotFoundError(f"No SAM files found in {input_dir}")
-
-    for sam_file in sam_files:
-        logging.info(f"Processing: {sam_file}")
-        sample_name = os.path.splitext(os.path.basename(sam_file))[0].replace('_aln', '')
-
+    try:
         # Convert SAM to BAM with MAPQ and flag filtering
         bam_file = os.path.join(output_dir, f"{sample_name}.bam")
         sam_to_bam_command = (
@@ -125,6 +100,52 @@ def main(argv=None):
         run_command(index_command)
 
         logging.info(f"Sorted BAM file generated and indexed: {sorted_bam_file}")
+
+    except Exception as e:
+        logging.error(f"Error processing sample derived from {sam_file}: {e}")
+
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--input_dir', type=str, required=True, help='Path to input directory containing SAM files.')
+    parser.add_argument('--reference_fasta', type=str, required=True, help='Path to reference FASTA file.')
+    parser.add_argument('--output_dir', type=str, required=True, help='Path to output directory for BAM files.')
+    parser.add_argument('--config', type=str, required=True, help='Path to virus config YAML file')
+    parser.add_argument('--threads', type=int, default=2, help='Number of parallel SAM processing threads (default: 2)')
+    args = parser.parse_args(argv)
+
+    config = load_config(args.config)
+    af = config['alignment_filtering']
+    dedup = config['deduplication']
+
+    input_dir = os.path.abspath(args.input_dir)
+    reference_fasta = os.path.abspath(args.reference_fasta)
+    output_dir = os.path.abspath(args.output_dir)
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    sam_files = glob.glob(os.path.join(input_dir, "*_aln.sam"))
+    logging.info(f"Found {len(sam_files)} SAM files in {input_dir}: {sam_files}")
+    if not sam_files:
+        logging.error(f"No SAM files found in {input_dir}")
+        raise FileNotFoundError(f"No SAM files found in {input_dir}")
+
+    # Process SAM files concurrently using a ThreadPoolExecutor
+    logging.info(f"Starting parallel alignment-filtering pool with {args.threads} threads...")
+    with ThreadPoolExecutor(max_workers=args.threads) as executor:
+        futures = [
+            executor.submit(process_sam_file, sam_file, output_dir, reference_fasta, af, dedup)
+            for sam_file in sam_files
+        ]
+        
+        # Monitor threads and raise pool errors if necessary
+        for future in futures:
+            future.result()
+
+    logging.info("Alignment filtering and processing pipeline complete.")
 
 if __name__ == '__main__':
     main()
