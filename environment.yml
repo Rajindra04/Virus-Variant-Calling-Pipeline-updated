@@ -21,6 +21,8 @@ dependencies:
   - snpsift
   - ivar
   - bcftools
+  - megahit            # assembler for metagenomic mode
+  - kraken2            # classifier for contigs/read-level classification
   
   # Java versions for different tools
   # Note: Multiple Java versions may be needed
