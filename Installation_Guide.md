@@ -107,3 +107,45 @@ conda env create -f environment.yml -v
 ```
 
 
+
+## Metagenomic mode (optional) — host removal, assembly, and classification
+
+If you plan to run the pipeline with --meta (metagenomic mode), perform the following preparatory steps.
+
+1) Prepare a combined host reference (human + mosquito)
+- Concatenate the host FASTA files and index for bwa-mem2:
+
+```bash
+cat human.fasta mosquito.fasta > references/host_combined.fasta
+bwa-mem2 index references/host_combined.fasta
+```
+
+Keep the original FASTAs if you want separate per-host mapping statistics.
+
+2) Install assembler and classifier
+- For metagenomic assembly and contig classification we recommend megahit (or metaSPAdes) and kraken2. Install via conda:
+
+```bash
+conda install -c bioconda megahit kraken2 spades
+```
+
+3) Kraken2 databases
+- Kraken2 DBs are large and must be downloaded and built/installed separately. Example: build the standard Kraken2 DB (or download a prebuilt DB):
+
+```bash
+# create db folder and download/build standard DB (requires lots of disk & RAM)
+kraken2-build --standard --db /path/to/kraken2_db
+# or download a pre-built database and point meta.kraken2_db to its path
+```
+
+- In your config YAML (see configs/meta_example.yaml), set the path to the Kraken2 DB:
+
+```yaml
+meta:
+  kraken2_db: /path/to/kraken2_db
+```
+
+4) Resource considerations
+- Assemblers and Kraken2 DBs require substantial RAM and disk. If resources are limited, consider:
+  - Skipping assembly (set `meta.assembler: null`) and using read-level classification (kraken2 on reads) instead.
+  - Running on a machine with more memory / using a smaller, targeted Kraken DB.

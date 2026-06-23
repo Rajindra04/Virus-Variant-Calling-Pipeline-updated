@@ -1,0 +1,36 @@
+Title: Add metagenomic mode: host removal, assembly, and classification
+
+Summary
+
+Adds a new metagenomic mode (--meta) to the pipeline. When enabled, trimmed reads are host-depleted (human + mosquito) prior to downstream mapping; host-depleted reads are optionally assembled (MEGAHIT or metaSPAdes) and contigs can be classified with Kraken2. Downstream mapping and variant-calling use the host-depleted FASTQs when available.
+
+Files changed
+
+- virus_pipeline/map_reads.py — adds --meta flag, host-removal, de novo assembly and contig classification support, and provenance logging.
+- environment.yml — adds megahit and kraken2 to the conda environment.
+- configs/meta_example.yaml — example meta configuration.
+- docs/meta_support.md — docs describing usage, host-reference preparation, and resource notes.
+- Installation_Guide.md — metagenomic instructions and Kraken2 DB guidance.
+
+Dependencies added
+
+- megahit (or metaSPAdes if chosen)
+- kraken2 (optional; required only if you want contig/read classification)
+- Kraken2 databases must be downloaded separately; see instructions in Installation_Guide.md and docs/meta_support.md.
+
+Testing checklist
+
+1. Run pipeline with a small paired-end sample and --meta:
+   - Confirm host-depleted FASTQs {sample}_host_depleted_1.fastq.gz / _2.fastq.gz appear and are smaller than original trimmed FASTQs.
+   - If assembler enabled, verify assembly directory contains contigs (final.contigs.fa or contigs.fasta).
+   - If kraken2_db set, verify kraken2 report files are created in the assembly directory.
+   - Confirm mapping and downstream steps complete using the host-depleted FASTQs.
+2. Edge cases:
+   - meta requested but meta.host_reference missing => pipeline should exit with clear error (current behavior).
+   - No reads survive host removal => pipeline currently warns and continues with original trimmed reads; confirm this is acceptable or change to skip sample.
+
+Resource caveats
+
+- Assemblers and Kraken2 DBs are memory- and disk-intensive. Recommend running on a machine with sufficient RAM/disk; large Kraken2 DBs must be downloaded and stored externally.
+- Host removal by mapping is conservative and takes extra run time; an alternative is read-level classification (Kraken2) for filtering, which is faster in many cases but requires an appropriate database.
+
