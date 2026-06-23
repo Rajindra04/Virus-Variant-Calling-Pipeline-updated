@@ -1,0 +1,22 @@
+# Example meta config for metagenomic mode
+# Save as configs/meta_example.yaml and reference from the main config or pass --config that includes this section.
+
+meta:
+  # Path to combined host reference (concatenate human + mosquito FASTA and index with bwa-mem2)
+  host_reference: "references/host_combined.fasta"
+
+  # Assembler: 'megahit' (default) or 'metaSPAdes'
+  assembler: "megahit"
+
+  # Minimum contig length to retain (passed to assembler)
+  min_contig_len: 200
+
+  # Classifier and DB: currently supports kraken2 if kraken2_db is provided
+  classifier: "kraken2"
+  kraken2_db: "/path/to/kraken2_db"
+
+  # Optional: run read-level classification on host-depleted reads (kraken2)
+  run_read_level_classification: false
+
+  # Threads to use (if not provided, falls back to --threads)
+  threads: 4
